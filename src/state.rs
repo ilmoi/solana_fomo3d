@@ -7,15 +7,15 @@ pub const GAME_STATE_SIZE: usize = 8 * 4 + 1;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct GameState {
     pub round_id: u64,        //round id number / total rounds that have happened
-    pub round_init_time: u64, //in seconds, wait time before a new round begins, after previous ended
-    pub round_inc_time: u64,  //in seconds, how much each key purchase increases the time
-    pub round_max_time: u64,  //in seconds, max timer time
+    pub round_init_time: i64, //in seconds, wait time before a new round begins, after previous ended
+    pub round_inc_time: i64,  //in seconds, how much each key purchase increases the time
+    pub round_max_time: i64,  //in seconds, max timer time
     pub version: u8,
 }
 
-pub const ROUND_INIT_TIME: u64 = 1 * 60 * 60; //1h
-pub const ROUND_INC_TIME: u64 = 30; //30s
-pub const ROUND_MAX_TIME: u64 = 24 * 60 * 60; //24h
+pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
+pub const ROUND_INC_TIME: i64 = 30; //30s
+pub const ROUND_MAX_TIME: i64 = 24 * 60 * 60; //24h
 
 // --------------------------------------- fees & teams
 
@@ -37,14 +37,13 @@ pub struct PotSplit {
     p3d: u64,
 }
 
-pub const TEAM_SIZE: usize = 1 + 16 + 16; //extra 1 for the enum
+pub const TEAM_SIZE: usize = 1;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub enum Team {
-    Init(FeeSplit, PotSplit), //used to init a fresh round
-    Whale(FeeSplit, PotSplit),
-    Bear(FeeSplit, PotSplit),
-    Snek(FeeSplit, PotSplit),
-    Bull(FeeSplit, PotSplit),
+    Whale,
+    Bear,
+    Snek,
+    Bull,
 }
 
 pub const INIT_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 0, p3d: 0 }; //used to init a fresh round
@@ -84,24 +83,26 @@ pub struct RoundState {
 
 // --------------------------------------- player
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
-pub struct PlayerState {
-    pub player_pk: Pubkey,
-    pub accum_winnings: u64,    //vault for the final sum if the user wins
-    pub accum_f3d: u64,         //vault for dividends from key ownership
-    pub accum_aff: u64,         //vault for affiliate dividends (for referrals)
-    pub last_round_id: u64,     //last round the user participated in
-    pub last_affiliate_id: u64, //whoever referred the user (todo I think)
-}
+// todo not convinced is needed
+// #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+// pub struct PlayerState {
+//     pub player_pk: Pubkey,
+//     pub last_round_id: u64,     //last round the user participated in
+// }
 
 // --------------------------------------- player x round
 
+pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 * 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
-pub struct PlayerRound {
+pub struct PlayerRoundState {
     pub player_pk: Pubkey,
     pub round_id: u64,
-    pub keys: u64,                //number of keys owned by the user
-    pub accum_sol_added: u64,     //amount of SOL the player has added to round (used as limiter)
+    pub last_affiliate_id: u64, //whoever referred the user (todo I think)
+    pub accum_keys: u64,        //number of keys owned by the user
+    pub accum_winnings: u64,    //vault for the final sum if the user wins
+    pub accum_f3d: u64,         //vault for dividends from key ownership
+    pub accum_aff: u64,         //vault for affiliate dividends (for referrals)
+    pub accum_sol_added: u64,   //amount of SOL the player has added to round (used as limiter)
     pub accum_sol_withdrawn: u64, //dividends already PAID OUT to user
 }
 

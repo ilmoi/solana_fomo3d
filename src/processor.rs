@@ -1,8 +1,9 @@
 use crate::error::SomeError;
-use crate::instruction::FomoInstruction;
+use crate::instruction::{FomoInstruction, PurchaseKeysParams};
 use crate::state::{
-    GameState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, GAME_STATE_SIZE, INIT_FEE_SPLIT,
-    INIT_POT_SPLIT, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME, ROUND_STATE_SIZE,
+    GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, GAME_STATE_SIZE,
+    INIT_FEE_SPLIT, INIT_POT_SPLIT, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME,
+    ROUND_MAX_TIME, ROUND_STATE_SIZE,
 };
 use crate::util::spl_token::{
     spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
@@ -21,12 +22,13 @@ use solana_program::system_instruction::{create_account, transfer, transfer_with
 use solana_program::sysvar::rent::Rent;
 use solana_program::sysvar::Sysvar;
 use spl_token::state::Account;
+use std::ops::Deref;
 
 pub const POT_SEED: &str = "pot";
 pub const GAME_STATE_SEED: &str = "game";
 pub const ROUND_STATE_SEED: &str = "round";
-pub const PLAYER_STATE_SEED: &str = "player";
-pub const PLAYER_ROUND_STATE_SEED: &str = "playerround";
+// pub const PLAYER_STATE_SEED: &str = "player";
+pub const PLAYER_ROUND_STATE_SEED: &str = "pr";
 
 pub struct Processor {}
 
@@ -42,8 +44,8 @@ impl Processor {
                 Self::process_initialize_game(program_id, accounts, version)
             }
             FomoInstruction::InitiateRound => Self::process_initialize_round(program_id, accounts),
-            FomoInstruction::PurchaseKeys(lamports) => {
-                Self::process_purchase_keys(program_id, accounts, lamports)
+            FomoInstruction::PurchaseKeys(purchase_params) => {
+                Self::process_purchase_keys(program_id, accounts, purchase_params)
             }
             FomoInstruction::WithdrawSol => Self::process_withdraw_sol(program_id, accounts),
         }
@@ -52,20 +54,104 @@ impl Processor {
     pub fn process_purchase_keys(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        lamports: u64,
+        purchase_params: PurchaseKeysParams,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let funder_info = next_account_info(account_info_iter)?;
+        let player_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
+        let player_round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
-        let mint_info = next_account_info(account_info_iter)?;
-        let rent_info = next_account_info(account_info_iter)?; //todo can this be replaced with rent sysvar?
+        let player_token_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        //check if player state exists - if not create
-        //check if player round state exists - if not create
+        //todo require player_info to be a signer
+
+        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
+        let player_pk = player_info.key;
+
+        let PurchaseKeysParams { lamports, team } = purchase_params;
+
+        // --------------------------------------- check if player round state exists - if not create
+        let player_round_state_seed = format!(
+            "{}{}{}{}",
+            PLAYER_ROUND_STATE_SEED,      //2
+            &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
+            game_state.round_id,          //8
+            game_state.version            //1
+        );
+        find_and_verify_pda(
+            player_round_state_seed.as_bytes(),
+            program_id,
+            player_round_state_info,
+        )?;
+
+        if !check_account_exists(player_round_state_info) {
+            create_pda_with_space(
+                player_round_state_seed.as_bytes(),
+                player_round_state_info,
+                PLAYER_ROUND_STATE_SIZE,
+                program_id,
+                player_info,
+                system_program_info,
+                program_id,
+            )?;
+        } else {
+            msg!(
+                "account for player {} for round {} already exists!",
+                player_pk,
+                game_state.round_id
+            );
+        }
+
+        // --------------------------------------- transfer funds to pot
+        spl_token_transfer(TokenTransferParams {
+            source: player_token_info.clone(),
+            destination: pot_info.clone(),
+            authority: player_info.clone(),
+            token_program: token_program_info.clone(),
+            amount: lamports,
+            authority_signer_seeds: &[],
+        })?;
+
+        // --------------------------------------- prep the variables
+        let player_team = match team {
+            0 => Team::Whale,
+            1 => Team::Bear,
+            3 => Team::Bull,
+            _ => Team::Snek, //default team snek
+        };
+
+        //todo need to calc how many keys they're getting here
+        let new_keys = 123;
+
+        // --------------------------------------- serialize round state
+        let mut round_state: RoundState =
+            RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
+        round_state.lead_player_pk = *player_pk;
+        round_state.lead_player_team = player_team;
+        //todo needs to be more sophisticated
+        round_state.end_time += ROUND_INC_TIME;
+        round_state.accum_keys += new_keys;
+        round_state.accum_sol_pot += lamports;
+
+        //todo need to calc all the shares
+
+        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
+
+        // --------------------------------------- serialize player-round state
+        let mut player_round_state: PlayerRoundState =
+            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+
+        player_round_state.player_pk = *player_pk;
+        player_round_state.round_id = game_state.round_id;
+        player_round_state.accum_keys += new_keys;
+        player_round_state.accum_sol_added += lamports;
+
+        //todo need to do all the lottery shit
+
+        player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -137,10 +223,8 @@ impl Processor {
 
         // all attributes not mentioned automatically start at 0.
         round_state.round_id = game_state.round_id;
-        //todo in theory don't need this line - but I might want to do a check in the future
-        round_state.lead_player_team = Team::Init(INIT_FEE_SPLIT, INIT_POT_SPLIT); //need to fill the space with 0s
         round_state.start_time = clock.unix_timestamp;
-        round_state.end_time = round_state.start_time + ROUND_INIT_TIME as i64;
+        round_state.end_time = round_state.start_time + ROUND_INIT_TIME;
         round_state.ended = false;
         round_state.accum_sol_pot = pot.amount;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
@@ -226,6 +310,11 @@ impl Processor {
 }
 
 // ============================================================================= helpers
+
+fn check_account_exists(acc: &AccountInfo) -> bool {
+    let does_not_exist = **acc.lamports.borrow() == 0 || acc.data_is_empty();
+    !does_not_exist
+}
 
 fn find_and_verify_pda(
     pda_seed: &[u8],
