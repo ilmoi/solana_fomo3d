@@ -1,11 +1,12 @@
 use crate::error::SomeError;
 use crate::instruction::{FomoInstruction, PurchaseKeysParams};
-use crate::math::common::TryCast;
+use crate::math::common::{TryCast, TryDiv, TryMul};
 use crate::math::curve::keys_received;
 use crate::state::{
     GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, GAME_STATE_SIZE,
     PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME, ROUND_STATE_SIZE,
 };
+use crate::util::rng::pseudo_rng;
 use crate::util::spl_token::{
     spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
 };
@@ -100,7 +101,7 @@ impl Processor {
             player_round_state_info,
         )?;
 
-        let mut player_round_state = if !check_account_exists(player_round_state_info) {
+        let mut player_round_state = if !account_exists(player_round_state_info) {
             create_pda_with_space(
                 player_round_state_seed.as_bytes(),
                 player_round_state_info,
@@ -126,12 +127,16 @@ impl Processor {
         };
 
         // --------------------------------------- calc & prep vaiables
-        // if total pot < 100 sol, each user only allowed to contribute 1 sol
-        if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
-            && sol_supplied > LAMPORTS_PER_SOL as u128
+        // if total pot < 100 sol, each user only allowed to contribute 1 sol total
+        sol_supplied = if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
+            && player_round_state.accum_sol_added + sol_supplied > LAMPORTS_PER_SOL as u128
         {
-            sol_supplied = LAMPORTS_PER_SOL as u128;
-        }
+            let allowed_contribution =
+                LAMPORTS_PER_SOL as u128 - player_round_state.accum_sol_added;
+            allowed_contribution
+        } else {
+            sol_supplied
+        };
 
         let player_team = match team {
             0 => {
@@ -152,13 +157,12 @@ impl Processor {
             }
         };
 
-        // ensure enough lamports are sent to buy at least 1 whole key
-        // in the original game they allow purchases of <1 key,
-        // but in Solana, due to U128 math restrictions, we decided to just make 1 key the min
-        // in practice this means a minimum purchase price of
+        // Ensure enough lamports are sent to buy at least 1 whole key.
+        // In the original game on Ethereum it was possible to purchase <1 key.
+        // On Solana however, due to restrictions around doing U256 math, we set the min as 1 key.
+        // In practice this means a min participation ticket of:
         //  - 75_000 lamports/key at the beginning of the round (when keys are cheap)
-        //  - 1.7 sol/per at the absolute max capacity of the game (10bn sol total - which is not even possible to reach)
-        // that feels reasonable.
+        //  - 1.7 sol/per at max capacity of the game (10bn SOL total - not actually achievable)
         let new_keys = keys_received(round_state.accum_sol_pot, sol_supplied)?;
         if new_keys < 1 {
             msg!("your purchase is too small - min 1 key");
@@ -175,6 +179,32 @@ impl Processor {
             authority_signer_seeds: &[],
         })?;
 
+        // --------------------------------------- airdrop
+        //if they deposited > 0.1 sol, they're eligible for airdrop
+        if sol_supplied > (LAMPORTS_PER_SOL as u128).try_div(10)? {
+            let clock = Clock::get()?;
+
+            //with every extra player chance of airdrop increases by 0.1%
+            round_state.airdrop_tracker += 1;
+
+            if airdrop_winner(player_pk, &clock, round_state.airdrop_tracker)? {
+                let airdrop_to_distribute = round_state.accum_airdrop_share;
+                //3 tiers exist for airdrop
+                let prize = if sol_supplied > (LAMPORTS_PER_SOL as u128).try_mul(10)? {
+                    //10+ sol - win 75% of the accumulated airdrop pot
+                    airdrop_to_distribute.try_mul(75)?.try_div(100)?
+                } else if sol_supplied > LAMPORTS_PER_SOL as u128 {
+                    //1-10 sol - win 50% of the accumulated airdrop pot
+                    airdrop_to_distribute.try_mul(50)?.try_div(100)?
+                } else {
+                    //0.1-1 sol - win 25% of the accumulated airdrop pot
+                    airdrop_to_distribute.try_mul(25)?.try_div(100)?
+                };
+                round_state.accum_airdrop_share -= prize;
+                player_round_state.accum_winnings += prize;
+            }
+        }
+
         // --------------------------------------- serialize round state
         //update leader
         round_state.lead_player_pk = *player_pk;
@@ -185,7 +215,6 @@ impl Processor {
         round_state.accum_keys += new_keys;
         round_state.accum_sol_pot += sol_supplied;
         //todo update shares & airdrop
-        round_state.airdrop_tracker += 1;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         // --------------------------------------- serialize player-round state
@@ -351,7 +380,16 @@ impl Processor {
 
 // ============================================================================= helpers
 
-fn check_account_exists(acc: &AccountInfo) -> bool {
+fn airdrop_winner(
+    player_pk: &Pubkey,
+    clock: &Clock,
+    airdrop_tracker: u64,
+) -> Result<bool, ProgramError> {
+    let lottery_ticket = pseudo_rng(player_pk, clock)?;
+    Ok(lottery_ticket < airdrop_tracker as u128)
+}
+
+fn account_exists(acc: &AccountInfo) -> bool {
     let does_not_exist = **acc.lamports.borrow() == 0 || acc.data_is_empty();
     !does_not_exist
 }

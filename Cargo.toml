@@ -24,3 +24,6 @@ crate-type = ["cdylib", "lib"]
 
 [dev-dependencies]
 proptest = "1.0.0"
+solana-program-test = "1.7.10"
+solana-sdk = "1.7.10"
+tokio = "1.10.0"

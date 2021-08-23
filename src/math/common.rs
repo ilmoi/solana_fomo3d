@@ -32,6 +32,10 @@ pub trait TryCast<Into>: Sized {
     fn try_cast(self) -> Result<Into, ProgramError>;
 }
 
+pub trait TryRem: Sized {
+    fn try_rem(self, rhs: Self) -> Result<Self, ProgramError>;
+}
+
 // --------------------------------------- u64
 
 impl TrySub for u64 {
@@ -67,6 +71,12 @@ impl TryPow<u32> for u64 {
 impl TrySqrt for u64 {
     fn try_sqrt(self) -> Result<Self, ProgramError> {
         sqrt(self).ok_or(SomeError::BadError.into())
+    }
+}
+
+impl TryRem for u64 {
+    fn try_rem(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_rem(rhs).ok_or(SomeError::BadError.into())
     }
 }
 
@@ -114,6 +124,12 @@ impl TryCast<u64> for u128 {
     }
 }
 
+impl TryRem for u128 {
+    fn try_rem(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_rem(rhs).ok_or(SomeError::BadError.into())
+    }
+}
+
 // --------------------------------------- PreciseNumber
 
 impl TrySub for PreciseNumber {
@@ -151,6 +167,13 @@ impl TrySqrt for PreciseNumber {
         self.sqrt().ok_or(SomeError::BadError.into())
     }
 }
+
+//doesn't exist
+// impl TryRem for PreciseNumber {
+//     fn try_rem(self, rhs: self) -> Result<Self, ProgramError> {
+//         self.checked_rem(rhs).ok_or(SomeError::BadError.into())
+//     }
+// }
 
 // --------------------------------------- tests
 
