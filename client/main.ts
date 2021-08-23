@@ -246,7 +246,7 @@ async function play() {
     await getConnection();
     await initGame();
     await initRound();
-    await sendAndGetBack();
+    // await sendAndGetBack();
     await purchaseKeys();
 }
 

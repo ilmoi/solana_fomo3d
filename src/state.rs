@@ -1,3 +1,4 @@
+use crate::util::util::is_zero;
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::pubkey::Pubkey;
 
@@ -26,8 +27,8 @@ pub const FEE_SPLIT_SIZE: usize = 2;
 // (1) can be deduced as 100 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct FeeSplit {
-    f3d: u8,
-    p3d: u8,
+    pub f3d: u8,
+    pub p3d: u8,
 }
 
 pub const POT_SPLIT_SIZE: usize = 2;
@@ -35,8 +36,8 @@ pub const POT_SPLIT_SIZE: usize = 2;
 // (1) can be deduced as 100 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PotSplit {
-    f3d: u8,
-    p3d: u8,
+    pub f3d: u8,
+    pub p3d: u8,
 }
 
 pub const TEAM_SIZE: usize = 1;
@@ -70,40 +71,54 @@ pub struct SolByTeam {
 // --------------------------------------- round
 
 pub const ROUND_STATE_SIZE: usize =
-    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (7 * 16) + 8;
+    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (9 * 16) + 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
     pub round_id: u64,
+    //lead player
     pub lead_player_pk: Pubkey,
     pub lead_player_team: Team,
+    //timing
     pub start_time: UnixTimestamp, //the time the round starts / has started
     pub end_time: UnixTimestamp,   //the time the round ends / has ended
     pub ended: bool,               //whether the round has ended
+    //totals
     pub accum_keys: u128,
     pub accum_sol_pot: u128, //in lamports
     pub accum_sol_by_team: SolByTeam,
-    pub accum_f3d_share: u128,
-    pub accum_p3d_share: u128,
+    //shares
     pub accum_community_share: u128,
-    pub accum_next_round_share: u128,
     pub accum_airdrop_share: u128, //person who gets the airdrop wins part of this pot
-    pub airdrop_tracker: u64,      //increment each time a qualified tx occurs
+    pub accum_next_round_share: u128,
+    pub accum_aff_share: u128, //used for checks and balances
+    pub accum_p3d_share: u128,
+    pub accum_f3d_share: u128,
+    pub accum_prize_share: u128, //used for checks and balances
+    //airdrop
+    pub airdrop_tracker: u64, //increment each time a qualified tx occurs
 }
 
 // --------------------------------------- player x round
 
-pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (6 * 16);
+pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (5 * 16);
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PlayerRoundState {
     pub player_pk: Pubkey,
     pub round_id: u64,
     pub last_affiliate_pk: Pubkey, //whoever referred the user (todo I think)
+    //totals
     pub accum_keys: u128,          //number of keys owned by the user
-    pub accum_winnings: u128,      //vault for the final sum if the user wins
-    pub accum_f3d: u128,           //vault for dividends from key ownership
-    pub accum_aff: u128,           //vault for affiliate dividends (for referrals)
     pub accum_sol_added: u128,     //amount of SOL the player has added to round (used as limiter)
     pub accum_sol_withdrawn: u128, //dividends already PAID OUT to user
+    //shares
+    pub accum_winnings: u128, //vault for winnings from 1)the airdrop lottery, 2)the final prize
+    pub accum_aff: u128,      //vault for affiliate dividends
+}
+
+impl PlayerRoundState {
+    pub fn has_affiliate(&self) -> bool {
+        !is_zero(&self.last_affiliate_pk.to_bytes())
+    }
 }
 
 // --------------------------------------- other stuff

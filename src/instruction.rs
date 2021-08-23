@@ -10,7 +10,7 @@ pub enum FomoInstruction {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PurchaseKeysParams {
-    pub sol_supplied: u128,
+    pub sol_to_be_added: u128,
     pub team: u8,
     // pub affiliate_pk: [u8; 32],
 }
