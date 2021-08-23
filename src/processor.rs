@@ -1,9 +1,10 @@
 use crate::error::SomeError;
 use crate::instruction::{FomoInstruction, PurchaseKeysParams};
+use crate::math::common::TryCast;
+use crate::math::curve::keys_received;
 use crate::state::{
     GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, GAME_STATE_SIZE,
-    INIT_FEE_SPLIT, INIT_POT_SPLIT, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME,
-    ROUND_MAX_TIME, ROUND_STATE_SIZE,
+    PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME, ROUND_STATE_SIZE,
 };
 use crate::util::spl_token::{
     spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
@@ -68,10 +69,14 @@ impl Processor {
 
         //todo require player_info to be a signer
 
-        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
-        let player_pk = player_info.key;
+        let PurchaseKeysParams { sol_supplied, team } = purchase_params;
 
-        let PurchaseKeysParams { lamports, team } = purchase_params;
+        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
+        let mut round_state: RoundState =
+            RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
+        let mut player_round_state: PlayerRoundState =
+            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+        let player_pk = player_info.key;
 
         // --------------------------------------- check if player round state exists - if not create
         let player_round_state_seed = format!(
@@ -111,7 +116,7 @@ impl Processor {
             destination: pot_info.clone(),
             authority: player_info.clone(),
             token_program: token_program_info.clone(),
-            amount: lamports,
+            amount: sol_supplied.try_cast()?,
             authority_signer_seeds: &[],
         })?;
 
@@ -122,35 +127,24 @@ impl Processor {
             3 => Team::Bull,
             _ => Team::Snek, //default team snek
         };
-
-        //todo need to calc how many keys they're getting here
-        let new_keys = 123;
+        let new_keys = keys_received(round_state.accum_sol_pot, sol_supplied)?;
 
         // --------------------------------------- serialize round state
-        let mut round_state: RoundState =
-            RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
         round_state.lead_player_pk = *player_pk;
         round_state.lead_player_team = player_team;
         //todo needs to be more sophisticated
         round_state.end_time += ROUND_INC_TIME;
         round_state.accum_keys += new_keys;
-        round_state.accum_sol_pot += lamports;
-
+        round_state.accum_sol_pot += sol_supplied;
         //todo need to calc all the shares
-
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         // --------------------------------------- serialize player-round state
-        let mut player_round_state: PlayerRoundState =
-            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
-
         player_round_state.player_pk = *player_pk;
         player_round_state.round_id = game_state.round_id;
         player_round_state.accum_keys += new_keys;
-        player_round_state.accum_sol_added += lamports;
-
+        player_round_state.accum_sol_added += sol_supplied;
         //todo need to do all the lottery shit
-
         player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -226,7 +220,7 @@ impl Processor {
         round_state.start_time = clock.unix_timestamp;
         round_state.end_time = round_state.start_time + ROUND_INIT_TIME;
         round_state.ended = false;
-        round_state.accum_sol_pot = pot.amount;
+        round_state.accum_sol_pot = pot.amount as u128;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         game_state.round_id = new_round;

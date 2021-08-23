@@ -1,6 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::pubkey::Pubkey;
 
+pub type UnixTimestamp = i64;
+
 // --------------------------------------- game state
 
 pub const GAME_STATE_SIZE: usize = 8 * 4 + 1;
@@ -19,22 +21,22 @@ pub const ROUND_MAX_TIME: i64 = 24 * 60 * 60; //24h
 
 // --------------------------------------- fees & teams
 
-pub const FEE_SPLIT_SIZE: usize = 16;
+pub const FEE_SPLIT_SIZE: usize = 2;
 // when a key is purchased the fees are split between 1)next round, 2)f3d players, 3)p3d holders.
 // (1) can be deduced as 100 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct FeeSplit {
-    f3d: u64,
-    p3d: u64,
+    f3d: u8,
+    p3d: u8,
 }
 
-pub const POT_SPLIT_SIZE: usize = 16;
+pub const POT_SPLIT_SIZE: usize = 2;
 // when the round is over the pot is split between 1)next round, 2)f3d players, 3)p3d holders.
 // (1) can be deduced as 100 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PotSplit {
-    f3d: u64,
-    p3d: u64,
+    f3d: u8,
+    p3d: u8,
 }
 
 pub const TEAM_SIZE: usize = 1;
@@ -46,13 +48,11 @@ pub enum Team {
     Bull,
 }
 
-pub const INIT_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 0, p3d: 0 }; //used to init a fresh round
 pub const WHALE_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 30, p3d: 6 };
 pub const BEAR_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 43, p3d: 0 };
 pub const SNEK_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 56, p3d: 10 };
 pub const BULL_FEE_SPLIT: FeeSplit = FeeSplit { f3d: 43, p3d: 8 };
 
-pub const INIT_POT_SPLIT: PotSplit = PotSplit { f3d: 0, p3d: 0 }; //used to init a fresh round
 pub const WHALE_POT_SPLIT: PotSplit = PotSplit { f3d: 15, p3d: 10 };
 pub const BEAR_POT_SPLIT: PotSplit = PotSplit { f3d: 25, p3d: 0 };
 pub const SNEK_POT_SPLIT: PotSplit = PotSplit { f3d: 20, p3d: 20 };
@@ -60,9 +60,7 @@ pub const BULL_POT_SPLIT: PotSplit = PotSplit { f3d: 30, p3d: 10 };
 
 // --------------------------------------- round
 
-pub type UnixTimestamp = i64;
-
-pub const ROUND_STATE_SIZE: usize = 8 * 11 + 1 + 32 + TEAM_SIZE;
+pub const ROUND_STATE_SIZE: usize = 8 + 32 + TEAM_SIZE + (8 * 2) + 1 + (7 * 16) + 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
     pub round_id: u64,
@@ -71,39 +69,30 @@ pub struct RoundState {
     pub start_time: UnixTimestamp, //the time the round starts / has started
     pub end_time: UnixTimestamp,   //the time the round ends / has ended
     pub ended: bool,               //whether the round has ended
-    pub accum_keys: u64,
-    pub accum_sol_pot: u64,
-    pub accum_f3d_share: u64,
-    pub accum_p3d_share: u64,
-    pub accum_community_share: u64,
-    pub accum_next_round_share: u64,
-    pub accum_airdrop_share: u64, //person who gets the airdrop wins part of this pot
-    pub airdrop_tracker: u64,     //increment each time a qualified tx occurs
+    pub accum_keys: u128,
+    pub accum_sol_pot: u128, //in lamports
+    pub accum_f3d_share: u128,
+    pub accum_p3d_share: u128,
+    pub accum_community_share: u128,
+    pub accum_next_round_share: u128,
+    pub accum_airdrop_share: u128, //person who gets the airdrop wins part of this pot
+    pub airdrop_tracker: u64,      //increment each time a qualified tx occurs
 }
-
-// --------------------------------------- player
-
-// todo not convinced is needed
-// #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
-// pub struct PlayerState {
-//     pub player_pk: Pubkey,
-//     pub last_round_id: u64,     //last round the user participated in
-// }
 
 // --------------------------------------- player x round
 
-pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 * 8;
+pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (6 * 16);
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PlayerRoundState {
     pub player_pk: Pubkey,
     pub round_id: u64,
-    pub last_affiliate_id: u64, //whoever referred the user (todo I think)
-    pub accum_keys: u64,        //number of keys owned by the user
-    pub accum_winnings: u64,    //vault for the final sum if the user wins
-    pub accum_f3d: u64,         //vault for dividends from key ownership
-    pub accum_aff: u64,         //vault for affiliate dividends (for referrals)
-    pub accum_sol_added: u64,   //amount of SOL the player has added to round (used as limiter)
-    pub accum_sol_withdrawn: u64, //dividends already PAID OUT to user
+    pub last_affiliate_pk: Pubkey, //whoever referred the user (todo I think)
+    pub accum_keys: u128,          //number of keys owned by the user
+    pub accum_winnings: u128,      //vault for the final sum if the user wins
+    pub accum_f3d: u128,           //vault for dividends from key ownership
+    pub accum_aff: u128,           //vault for affiliate dividends (for referrals)
+    pub accum_sol_added: u128,     //amount of SOL the player has added to round (used as limiter)
+    pub accum_sol_withdrawn: u128, //dividends already PAID OUT to user
 }
 
 // --------------------------------------- other stuff

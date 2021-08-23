@@ -1,7 +1,7 @@
 import {Token, TOKEN_PROGRAM_ID} from "@solana/spl-token";
 import {
     AccountInfo,
-    Connection, Keypair,
+    Connection, Keypair, LAMPORTS_PER_SOL,
     PublicKey, sendAndConfirmTransaction,
     Signer, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction,
     TransactionInstruction
@@ -240,3 +240,4 @@ async function play() {
 }
 
 play()
+
