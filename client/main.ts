@@ -10,6 +10,7 @@ import BN from "bn.js";
 import * as borsh from 'borsh';
 import {assert} from "./utils";
 import fs from "fs";
+import {gameSchema, GameState} from "./layout";
 
 // ============================================================================= globals & consts
 let connection: Connection;
@@ -85,6 +86,12 @@ async function createAndFundTokenAccount(mint: Token, owner: PublicKey, mintAmou
     return tokenUserPk;
 }
 
+async function getGameState() {
+    let gameStateInfo = await connection.getAccountInfo(gameState);
+    let gameStateData = borsh.deserialize(gameSchema, GameState, gameStateInfo?.data as Buffer);
+    console.log(gameStateData);
+}
+
 // ============================================================================= core
 
 async function initGame() {
@@ -113,6 +120,7 @@ async function initGame() {
         data,
     });
     await prepareAndSendTx([initIx], [ownerKp]);
+    //todo unpack and verify game state
 }
 
 async function initRound() {
@@ -134,7 +142,7 @@ async function initRound() {
 
     //wSol accounts
     wSolMint = await createMintAccount();
-    wSolAliceAcc = await createAndFundTokenAccount(wSolMint, aliceKp.publicKey, 100);
+    wSolAliceAcc = await createAndFundTokenAccount(wSolMint, aliceKp.publicKey, 100 * LAMPORTS_PER_SOL);
 
     //init round ix
     const data = Buffer.from(Uint8Array.of(1));
@@ -157,9 +165,11 @@ async function initRound() {
         data,
     });
     await prepareAndSendTx([initRoundIx], [ownerKp]);
+    //todo unpack and verify round state
 }
 
 async function sendAndGetBack() {
+    //todo this test ofc has to change - currently we're hardcoding a transfer of 1 lamport program-side
     console.log('// --------------------------------------- send and back')
     let amount;
     //send there
@@ -204,7 +214,7 @@ async function purchaseKeys() {
 
     //init round ix
     const data = Buffer.from(Uint8Array.of(2,
-        ...new BN(10).toArray('le', 8), //10 lamports
+        ...new BN(LAMPORTS_PER_SOL).toArray('le', 16), //1 sol
         ...new BN(1).toArray('le', 1), //1st team
     ));
     const purchaseKeysIx = new TransactionInstruction({
@@ -226,6 +236,7 @@ async function purchaseKeys() {
         data,
     });
     await prepareAndSendTx([purchaseKeysIx], [aliceKp]);
+    //todo unpack and verify changes to game/round state
 }
 
 // ============================================================================= play

@@ -12,4 +12,5 @@ pub enum FomoInstruction {
 pub struct PurchaseKeysParams {
     pub sol_supplied: u128,
     pub team: u8,
+    // pub affiliate_pk: [u8; 32],
 }

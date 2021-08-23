@@ -5,7 +5,7 @@ pub type UnixTimestamp = i64;
 
 // --------------------------------------- game state
 
-pub const GAME_STATE_SIZE: usize = 8 * 4 + 1;
+pub const GAME_STATE_SIZE: usize = (8 * 4) + 1;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct GameState {
     pub round_id: u64,        //round id number / total rounds that have happened
@@ -58,9 +58,19 @@ pub const BEAR_POT_SPLIT: PotSplit = PotSplit { f3d: 25, p3d: 0 };
 pub const SNEK_POT_SPLIT: PotSplit = PotSplit { f3d: 20, p3d: 20 };
 pub const BULL_POT_SPLIT: PotSplit = PotSplit { f3d: 30, p3d: 10 };
 
+pub const SOL_BY_TEAM_SIZE: usize = 16 * 4;
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+pub struct SolByTeam {
+    pub whale: u128,
+    pub bear: u128,
+    pub snek: u128,
+    pub bull: u128,
+}
+
 // --------------------------------------- round
 
-pub const ROUND_STATE_SIZE: usize = 8 + 32 + TEAM_SIZE + (8 * 2) + 1 + (7 * 16) + 8;
+pub const ROUND_STATE_SIZE: usize =
+    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (7 * 16) + 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
     pub round_id: u64,
@@ -71,6 +81,7 @@ pub struct RoundState {
     pub ended: bool,               //whether the round has ended
     pub accum_keys: u128,
     pub accum_sol_pot: u128, //in lamports
+    pub accum_sol_by_team: SolByTeam,
     pub accum_f3d_share: u128,
     pub accum_p3d_share: u128,
     pub accum_community_share: u128,

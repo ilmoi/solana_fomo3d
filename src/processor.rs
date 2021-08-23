@@ -15,6 +15,7 @@ use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::instruction::Instruction;
 use solana_program::msg;
+use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::program::{invoke, invoke_signed};
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::Pack;
@@ -28,7 +29,6 @@ use std::ops::Deref;
 pub const POT_SEED: &str = "pot";
 pub const GAME_STATE_SEED: &str = "game";
 pub const ROUND_STATE_SEED: &str = "round";
-// pub const PLAYER_STATE_SEED: &str = "player";
 pub const PLAYER_ROUND_STATE_SEED: &str = "pr";
 
 pub struct Processor {}
@@ -42,13 +42,21 @@ impl Processor {
         let instruction = FomoInstruction::try_from_slice(data)?;
         match instruction {
             FomoInstruction::InitiateGame(version) => {
+                msg!("init game");
                 Self::process_initialize_game(program_id, accounts, version)
             }
-            FomoInstruction::InitiateRound => Self::process_initialize_round(program_id, accounts),
+            FomoInstruction::InitiateRound => {
+                msg!("init round");
+                Self::process_initialize_round(program_id, accounts)
+            }
             FomoInstruction::PurchaseKeys(purchase_params) => {
+                msg!("purchase keys");
                 Self::process_purchase_keys(program_id, accounts, purchase_params)
             }
-            FomoInstruction::WithdrawSol => Self::process_withdraw_sol(program_id, accounts),
+            FomoInstruction::WithdrawSol => {
+                msg!("withdraw sol");
+                Self::process_withdraw_sol(program_id, accounts)
+            }
         }
     }
 
@@ -67,15 +75,15 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        //todo require player_info to be a signer
-
-        let PurchaseKeysParams { sol_supplied, team } = purchase_params;
-
         let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
         let mut round_state: RoundState =
             RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
-        let mut player_round_state: PlayerRoundState =
-            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+
+        let PurchaseKeysParams {
+            mut sol_supplied,
+            team,
+            // affiliate_pk,
+        } = purchase_params;
         let player_pk = player_info.key;
 
         // --------------------------------------- check if player round state exists - if not create
@@ -92,7 +100,7 @@ impl Processor {
             player_round_state_info,
         )?;
 
-        if !check_account_exists(player_round_state_info) {
+        let mut player_round_state = if !check_account_exists(player_round_state_info) {
             create_pda_with_space(
                 player_round_state_seed.as_bytes(),
                 player_round_state_info,
@@ -102,49 +110,89 @@ impl Processor {
                 system_program_info,
                 program_id,
             )?;
+            let mut player_round_state: PlayerRoundState =
+                PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+            //initially set the player's public key and round id
+            player_round_state.player_pk = *player_pk;
+            player_round_state.round_id = game_state.round_id;
+            player_round_state
         } else {
             msg!(
                 "account for player {} for round {} already exists!",
                 player_pk,
                 game_state.round_id
             );
+            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?
+        };
+
+        // --------------------------------------- calc & prep vaiables
+        // if total pot < 100 sol, each user only allowed to contribute 1 sol
+        if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
+            && sol_supplied > LAMPORTS_PER_SOL as u128
+        {
+            sol_supplied = LAMPORTS_PER_SOL as u128;
+        }
+
+        let player_team = match team {
+            0 => {
+                round_state.accum_sol_by_team.whale += sol_supplied;
+                Team::Whale
+            }
+            1 => {
+                round_state.accum_sol_by_team.bear += sol_supplied;
+                Team::Bear
+            }
+            3 => {
+                round_state.accum_sol_by_team.bull += sol_supplied;
+                Team::Bull
+            }
+            _ => {
+                round_state.accum_sol_by_team.snek += sol_supplied;
+                Team::Snek
+            }
+        };
+
+        // ensure enough lamports are sent to buy at least 1 whole key
+        // in the original game they allow purchases of <1 key,
+        // but in Solana, due to U128 math restrictions, we decided to just make 1 key the min
+        // in practice this means a minimum purchase price of
+        //  - 75_000 lamports/key at the beginning of the round (when keys are cheap)
+        //  - 1.7 sol/per at the absolute max capacity of the game (10bn sol total - which is not even possible to reach)
+        // that feels reasonable.
+        let new_keys = keys_received(round_state.accum_sol_pot, sol_supplied)?;
+        if new_keys < 1 {
+            msg!("your purchase is too small - min 1 key");
+            return Err(SomeError::BadError.into());
         }
 
         // --------------------------------------- transfer funds to pot
         spl_token_transfer(TokenTransferParams {
             source: player_token_info.clone(),
             destination: pot_info.clone(),
-            authority: player_info.clone(),
+            authority: player_info.clone(), //this automatically enforces player_info is a signer, thus verifying that acc
             token_program: token_program_info.clone(),
             amount: sol_supplied.try_cast()?,
             authority_signer_seeds: &[],
         })?;
 
-        // --------------------------------------- prep the variables
-        let player_team = match team {
-            0 => Team::Whale,
-            1 => Team::Bear,
-            3 => Team::Bull,
-            _ => Team::Snek, //default team snek
-        };
-        let new_keys = keys_received(round_state.accum_sol_pot, sol_supplied)?;
-
         // --------------------------------------- serialize round state
+        //update leader
         round_state.lead_player_pk = *player_pk;
         round_state.lead_player_team = player_team;
-        //todo needs to be more sophisticated
+        //update timer - todo needs to be more sophisticated
         round_state.end_time += ROUND_INC_TIME;
+        //update totals
         round_state.accum_keys += new_keys;
         round_state.accum_sol_pot += sol_supplied;
-        //todo need to calc all the shares
+        //todo update shares & airdrop
+        round_state.airdrop_tracker += 1;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         // --------------------------------------- serialize player-round state
-        player_round_state.player_pk = *player_pk;
-        player_round_state.round_id = game_state.round_id;
+        //update totals
         player_round_state.accum_keys += new_keys;
         player_round_state.accum_sol_added += sol_supplied;
-        //todo need to do all the lottery shit
+        //todo update shares & airdrop
         player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -160,7 +208,7 @@ impl Processor {
         let round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
         let mint_info = next_account_info(account_info_iter)?;
-        let rent_info = next_account_info(account_info_iter)?; //todo can this be replaced with rent sysvar?
+        let rent_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
@@ -252,8 +300,6 @@ impl Processor {
 
         let mut game_state: GameState =
             GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
-
-        //todo later these can be accepted dynamically
         game_state.round_id = 0; //will be incremented to 1 when 1st round initialized
         game_state.round_init_time = ROUND_INIT_TIME;
         game_state.round_inc_time = ROUND_INC_TIME;

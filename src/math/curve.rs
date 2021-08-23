@@ -4,12 +4,18 @@ use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::{msg, program_error::ProgramError};
 
 pub fn keys_received(current_sol: u128, new_sol: u128) -> Result<u128, ProgramError> {
+    if current_sol == 0 && new_sol == 0 {
+        return Ok(0);
+    }
     let total_keys = sol_to_keys(current_sol + new_sol)?;
     let current_keys = sol_to_keys(current_sol)?;
     Ok(total_keys - current_keys)
 }
 
 pub fn sol_received(current_keys: u128, sold_keys: u128) -> Result<u128, ProgramError> {
+    if current_keys == 0 && sold_keys == 0 {
+        return Ok(0);
+    }
     let total_sol = keys_to_sol(current_keys)?;
     let remaining_sol = keys_to_sol(current_keys - sold_keys)?;
     Ok(total_sol - remaining_sol)
@@ -26,7 +32,7 @@ const E: u128 = 1562500;
 
 /// (!) acceptable input range:
 ///     min: 75_001 lamports -> 1 key
-///     max: 10bn sol -> 11_313_228_509 keys
+///     max: 10bn sol -> 11_313_228_509 keys (unreachable - solana only has a max supply of 500m)
 fn sol_to_keys(sol: u128) -> Result<u128, ProgramError> {
     if sol == 0 {
         return Ok(0);
@@ -66,6 +72,21 @@ mod tests {
 
     #[test]
     fn test_keys_received() {
+        // --------------------------------------- lower bound
+        let current_sol = 0;
+        let new_sol = 0;
+        let new_keys = keys_received(current_sol, new_sol).unwrap();
+        assert_eq!(new_keys, 0);
+        // --------------------------------------- the min
+        let current_sol = 0;
+        let new_sol = 75000;
+        let new_keys = keys_received(current_sol, new_sol).unwrap();
+        assert_eq!(new_keys, 0);
+        let current_sol = 0;
+        let new_sol = 75001;
+        let new_keys = keys_received(current_sol, new_sol).unwrap();
+        assert_eq!(new_keys, 1);
+        // --------------------------------------- the bulk
         //initially (when total key pool is small) keys are cheap
         let current_sol = 0 * LAMPORTS_PER_SOL as u128;
         let new_sol = 1 * LAMPORTS_PER_SOL as u128;
@@ -80,10 +101,34 @@ mod tests {
         let new_sol = 1 * LAMPORTS_PER_SOL as u128;
         let new_keys = keys_received(current_sol, new_sol).unwrap();
         assert_eq!(new_keys, 565);
+        // --------------------------------------- the max
+        // effectively buying the last most expensive key
+        let current_sol = 10 * LAMPORTS_PER_SOL as u128 * LAMPORTS_PER_SOL as u128 - 1_767_766_955;
+        let new_sol = 1_767_766_955;
+        let new_keys = keys_received(current_sol, new_sol).unwrap();
+        assert_eq!(new_keys, 1);
+        // --------------------------------------- upper bound
+        let current_sol = 10 * LAMPORTS_PER_SOL as u128 * LAMPORTS_PER_SOL as u128 - 1_767_766_955;
+        let new_sol = 1_767_766_955 + 1;
+        let new_keys = keys_received(current_sol, new_sol);
+        assert!(new_keys.is_err());
     }
 
     #[test]
     fn test_sol_received() {
+        // --------------------------------------- lower bound
+        let current_keys = 0;
+        let sold_keys = 0;
+        let earned_sol = sol_received(current_keys, sold_keys).unwrap();
+        //can't divide by 0, so checking earned_sol instead
+        assert_eq!(earned_sol, 0);
+        // --------------------------------------- the min
+        let current_keys = 1; //if we're selling keys we must have at least that many
+        let sold_keys = 1;
+        let earned_sol = sol_received(current_keys, sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        assert_eq!(sol_per_key, 75000);
+        // --------------------------------------- the bulk
         //initially (when pool is small), keys are cheap
         let current_keys = 1000;
         let sold_keys = 100;
@@ -101,6 +146,13 @@ mod tests {
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
         let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 14918749);
+        // --------------------------------------- the max
+        //calc how much 1 key costs at the end of the game
+        let current_keys = 11313228509 - 1;
+        let sold_keys = 1;
+        let earned_sol = sol_received(current_keys, sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        assert_eq!(sol_per_key, 1_767_766_955);
     }
 
     #[test]
@@ -128,7 +180,7 @@ mod tests {
         let lamp = keys_to_sol(keys).unwrap();
         assert_eq!(lamp, 9999999998820763638);
         // --------------------------------------- upper bound
-        let keys = 11313228510;
+        let keys = 11313228509 + 1;
         let lamp = keys_to_sol(keys);
         assert!(lamp.is_err());
     }
