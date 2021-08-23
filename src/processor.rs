@@ -159,24 +159,25 @@ impl Processor {
 
         // --------------------------------------- part take in airdrop lottery
         //if they deposited > 0.1 sol, they're eligible for airdrop
-        if sol_to_be_added > (LAMPORTS_PER_SOL as u128).try_div(10)? {
+        if sol_to_be_added > (LAMPORTS_PER_SOL as u128).try_floor_div(10)? {
             let clock = Clock::get()?;
 
             //with every extra player chance of airdrop increases by 0.1%
             round_state.airdrop_tracker += 1;
 
             if airdrop_winner(player_pk, &clock, round_state.airdrop_tracker)? {
+                //NOTE: affiliate winnings _exclude_ contribution from this purchase, which is recorded below
                 let airdrop_to_distribute = round_state.accum_airdrop_share;
                 //3 tiers exist for airdrop
                 let prize = if sol_to_be_added > (LAMPORTS_PER_SOL as u128).try_mul(10)? {
                     //10+ sol - win 75% of the accumulated airdrop pot
-                    airdrop_to_distribute.try_mul(75)?.try_div(100)?
+                    airdrop_to_distribute.try_mul(75)?.try_floor_div(100)?
                 } else if sol_to_be_added > LAMPORTS_PER_SOL as u128 {
                     //1-10 sol - win 50% of the accumulated airdrop pot
-                    airdrop_to_distribute.try_mul(50)?.try_div(100)?
+                    airdrop_to_distribute.try_mul(50)?.try_floor_div(100)?
                 } else {
                     //0.1-1 sol - win 25% of the accumulated airdrop pot
-                    airdrop_to_distribute.try_mul(25)?.try_div(100)?
+                    airdrop_to_distribute.try_mul(25)?.try_floor_div(100)?
                 };
 
                 //send money
@@ -190,13 +191,13 @@ impl Processor {
         // --------------------------------------- split the fee among stakeholders
         //2% to community
         //todo impl mechanism where only community member can withdraw
-        let community_share = sol_to_be_added.try_div(50)?;
+        let community_share = sol_to_be_added.try_floor_div(50)?;
         //1% to future airdrops
-        let airdrop_share = sol_to_be_added.try_div(100)?;
+        let airdrop_share = sol_to_be_added.try_floor_div(100)?;
         //1% to next round's pot
-        let next_round_share = sol_to_be_added.try_div(100)?;
+        let next_round_share = sol_to_be_added.try_floor_div(100)?;
         //10% to affiliate
-        let affiliate_share = sol_to_be_added.try_div(10)?;
+        let affiliate_share = sol_to_be_added.try_floor_div(10)?;
 
         //todo impl mechanism where only p3d member can withdraw
         let mut p3d_share = 0;
@@ -223,10 +224,11 @@ impl Processor {
 
         p3d_share += sol_to_be_added
             .try_mul(fee_split.p3d as u128)?
-            .try_div(100)?;
+            .try_floor_div(100)?;
         f3d_share += sol_to_be_added
             .try_mul(fee_split.f3d as u128)?
-            .try_div(100)?;
+            .try_floor_div(100)?;
+
         let prize_share = sol_to_be_added
             .try_sub(community_share)?
             .try_sub(airdrop_share)?
@@ -261,8 +263,6 @@ impl Processor {
         player_round_state.accum_keys += new_keys;
         player_round_state.accum_sol_added += sol_to_be_added;
         player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
-
-        //todo impl a check for the math
 
         Ok(())
     }
@@ -421,6 +421,24 @@ impl Processor {
 }
 
 // ============================================================================= helpers
+
+/// The original math for this is unnecessary convoluted and we decided to ignore it.
+/// Ultimately this comes down to a simple equation: (player's keys / total keys) * total f3d earnings.
+/// That's the approach taken below. For anyone interested in original math follow these links:
+/// https://gist.github.com/ilmoi/4daad0d6e9730cc6af833c065a95b717#file-fomo-sol-L1533
+/// https://gist.github.com/ilmoi/4daad0d6e9730cc6af833c065a95b717#file-fomo-sol-L1125
+fn calculate_player_f3d_share(
+    player_keys: u128,
+    total_keys: u128,
+    accum_f3d: u128,
+) -> Result<u128, ProgramError> {
+    //in theory, there might be unaccounted dust left here.
+    //eg player1 keys = 333, player2 keys =  total keys = 1000, f3t pot = 100
+    //then player1 will get 33, player2 will get 66, and 1 will be left as dust
+    //in practice, however, to account for it would have to coordinate all withdrawals by all players
+    //which of course isn't possible. So it will just be left in the protocol
+    player_keys.try_mul(accum_f3d)?.try_floor_div(total_keys)
+}
 
 /// Checks whether actual funds in the pot equate to total of all the parties' shares.
 fn verify_round_state(round_state: &RoundState, pot_info: &AccountInfo) -> ProgramResult {

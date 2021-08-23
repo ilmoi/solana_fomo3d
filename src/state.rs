@@ -90,29 +90,33 @@ pub struct RoundState {
     pub accum_community_share: u128,
     pub accum_airdrop_share: u128, //person who gets the airdrop wins part of this pot
     pub accum_next_round_share: u128,
-    pub accum_aff_share: u128, //used for checks and balances
+    pub accum_aff_share: u128, //sum of all affiliate shares paid out to users (used for checks & balances)
     pub accum_p3d_share: u128,
-    pub accum_f3d_share: u128,
-    pub accum_prize_share: u128, //used for checks and balances
+    pub accum_f3d_share: u128, //sum of all f3d shares paid out to users (used for checks & balances)
+    pub accum_prize_share: u128, //the final prize pot, still needs to be divided between winner & rest
     //airdrop
     pub airdrop_tracker: u64, //increment each time a qualified tx occurs
 }
 
 // --------------------------------------- player x round
 
-pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (5 * 16);
+pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (7 * 16);
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PlayerRoundState {
     pub player_pk: Pubkey,
     pub round_id: u64,
-    pub last_affiliate_pk: Pubkey, //whoever referred the user (todo I think)
+    pub last_affiliate_pk: Pubkey, //last person to refer the player
     //totals
-    pub accum_keys: u128,          //number of keys owned by the user
-    pub accum_sol_added: u128,     //amount of SOL the player has added to round (used as limiter)
-    pub accum_sol_withdrawn: u128, //dividends already PAID OUT to user
-    //shares
-    pub accum_winnings: u128, //vault for winnings from 1)the airdrop lottery, 2)the final prize
-    pub accum_aff: u128,      //vault for affiliate dividends
+    pub accum_keys: u128,      //number of keys owned by the user
+    pub accum_sol_added: u128, //amount of SOL the player has added to round (used as limiter)
+    //shares (available for withdrawal to the user)
+    //NOTE: f3d share is calculated dynamically at the time of withdrawal due to constantly changing key ratio
+    pub accum_winnings: u128, //accumulated winnings from 1)the airdrop lottery, 2)the final prize
+    pub accum_aff: u128,      //accumulated affiliate dividends
+    //withdrawal history (subtracted from any future attempts)
+    pub withdrawn_winnings: u128,
+    pub withdrawn_aff: u128,
+    pub withdrawn_f3d: u128,
 }
 
 impl PlayerRoundState {

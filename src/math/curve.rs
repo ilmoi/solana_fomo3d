@@ -46,7 +46,7 @@ fn sol_to_keys(sol: u128) -> Result<u128, ProgramError> {
         .try_add(C)?
         .try_sqrt()?
         .try_sub(D)?
-        .try_div(E)
+        .try_floor_div(E)
 }
 
 /// (!) acceptable input range:
@@ -62,8 +62,7 @@ fn keys_to_sol(keys: u128) -> Result<u128, ProgramError> {
         .try_add(D)?
         .try_pow(2)?
         .try_sub(C)?
-        .try_div(A)?
-        .try_div(B)
+        .try_floor_div(A.try_mul(B)?)
 }
 
 #[cfg(test)]
@@ -126,32 +125,32 @@ mod tests {
         let current_keys = 1; //if we're selling keys we must have at least that many
         let sold_keys = 1;
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
-        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_floor_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 75000);
         // --------------------------------------- the bulk
         //initially (when pool is small), keys are cheap
         let current_keys = 1000;
         let sold_keys = 100;
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
-        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_floor_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 75148);
         //later (as pool grows), keys become exponentially more expensive
         let current_keys = 100_000;
         let sold_keys = 10_000;
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
-        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_floor_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 89843);
         let current_keys = 100_000_000;
         let sold_keys = 10_000_000;
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
-        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_floor_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 14918749);
         // --------------------------------------- the max
         //calc how much 1 key costs at the end of the game
         let current_keys = 11313228509 - 1;
         let sold_keys = 1;
         let earned_sol = sol_received(current_keys, sold_keys).unwrap();
-        let sol_per_key = earned_sol.try_div(sold_keys).unwrap();
+        let sol_per_key = earned_sol.try_floor_div(sold_keys).unwrap();
         assert_eq!(sol_per_key, 1_767_766_955);
     }
 
