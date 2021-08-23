@@ -1,6 +1,6 @@
 use crate::error::SomeError;
-use crate::instruction::{FomoInstruction, PurchaseKeysParams};
-use crate::math::common::{TryCast, TryDiv, TryMul, TrySub};
+use crate::instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams};
+use crate::math::common::{TryAdd, TryCast, TryDiv, TryMul, TrySub};
 use crate::math::curve::keys_received;
 use crate::state::{
     GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT,
@@ -41,25 +41,131 @@ impl Processor {
         accounts: &[AccountInfo],
         data: &[u8],
     ) -> ProgramResult {
-        let instruction = FomoInstruction::try_from_slice(data)?;
+        let instruction = GameInstruction::try_from_slice(data)?;
         match instruction {
-            FomoInstruction::InitiateGame(version) => {
+            GameInstruction::InitiateGame(version) => {
                 msg!("init game");
                 Self::process_initialize_game(program_id, accounts, version)
             }
-            FomoInstruction::InitiateRound => {
+            GameInstruction::InitiateRound => {
                 msg!("init round");
                 Self::process_initialize_round(program_id, accounts)
             }
-            FomoInstruction::PurchaseKeys(purchase_params) => {
+            GameInstruction::PurchaseKeys(purchase_params) => {
                 msg!("purchase keys");
                 Self::process_purchase_keys(program_id, accounts, purchase_params)
             }
-            FomoInstruction::WithdrawSol => {
+            GameInstruction::WithdrawSol(withdraw_params) => {
                 msg!("withdraw sol");
-                Self::process_withdraw_sol(program_id, accounts)
+                Self::process_withdraw_sol(program_id, accounts, withdraw_params)
+            }
+            GameInstruction::EndRound => {
+                msg!("end round");
+                Self::process_end_round(program_id, accounts)
             }
         }
+    }
+
+    pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+        Ok(())
+    }
+
+    pub fn process_withdraw_sol(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        withdraw_params: WithdrawSolParams,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let player_info = next_account_info(account_info_iter)?;
+        let game_state_info = next_account_info(account_info_iter)?;
+        let round_state_info = next_account_info(account_info_iter)?;
+        let player_round_state_info = next_account_info(account_info_iter)?;
+        let pot_info = next_account_info(account_info_iter)?;
+        let player_token_info = next_account_info(account_info_iter)?;
+        let system_program_info = next_account_info(account_info_iter)?;
+        let token_program_info = next_account_info(account_info_iter)?;
+
+        //todo be sure to test with more than 1 round
+        let WithdrawSolParams { withdraw_for_round } = withdraw_params;
+
+        let player_pk = player_info.key;
+
+        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow())?;
+        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
+        let game_state_bump =
+            find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
+
+        let round_state: RoundState = RoundState::try_from_slice(&round_state_info.data.borrow())?;
+        let round_state_seed = format!(
+            "{}{}{}",
+            ROUND_STATE_SEED, withdraw_for_round, game_state.version
+        );
+        find_and_verify_pda(round_state_seed.as_bytes(), program_id, round_state_info)?;
+
+        let pot_seed = format!("{}{}{}", POT_SEED, withdraw_for_round, game_state.version);
+        find_and_verify_pda(pot_seed.as_bytes(), program_id, pot_info)?;
+
+        let mut player_round_state = find_or_create_player_round_state(
+            player_round_state_info,
+            program_id,
+            player_info,
+            system_program_info,
+            player_pk, //this ensures the player state matches player_info
+            withdraw_for_round,
+            game_state.version,
+        )?;
+        //ensure the user actually owns player_info
+        if !player_info.is_signer {
+            return Err(SomeError::BadError.into());
+        }
+
+        // todo this check will fail coz owner = token_program. I wonder if there is another check that I need to do in place
+        // if *pot_info.owner != *fomo3d_state_info.key {
+        //     msg!("owner of pot account is not fomo3d");
+        //     return Err(SomeError::BadError.into());
+        // }
+
+        // --------------------------------------- calc withdrawal amounts
+        let winnings_to_withdraw = if round_state.ended {
+            player_round_state
+                .accum_winnings
+                .try_sub(player_round_state.withdrawn_winnings)?
+        } else {
+            0
+        };
+        let aff_to_withdraw = player_round_state
+            .accum_aff
+            .try_sub(player_round_state.withdrawn_aff)?;
+        let f3d_to_withdraw = calculate_player_f3d_share(
+            player_round_state.accum_keys,
+            round_state.accum_keys,
+            round_state.accum_f3d_share,
+        )?;
+        let total_to_withdraw = winnings_to_withdraw
+            .try_add(aff_to_withdraw)?
+            .try_add(f3d_to_withdraw)?;
+        if total_to_withdraw == 0 {
+            //should say something like "too little"
+            return Err(SomeError::BadError.into());
+        }
+
+        // --------------------------------------- transfer tokens
+        spl_token_transfer(TokenTransferParams {
+            source: pot_info.clone(),
+            destination: player_token_info.clone(),
+            amount: total_to_withdraw.try_cast()?,
+            authority: game_state_info.clone(),
+            authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
+            token_program: token_program_info.clone(),
+        })?;
+
+        // --------------------------------------- update player state
+        player_round_state.withdrawn_aff += aff_to_withdraw;
+        player_round_state.withdrawn_winnings += winnings_to_withdraw;
+        player_round_state.withdrawn_f3d += f3d_to_withdraw;
+        player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
+
+        Ok(())
     }
 
     pub fn process_purchase_keys(
@@ -83,8 +189,11 @@ impl Processor {
             // affiliate_pk,
         } = purchase_params;
 
-        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
         let player_pk = player_info.key;
+
+        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow())?;
+        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
+        find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
 
         let mut round_state: RoundState =
             RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
@@ -94,10 +203,14 @@ impl Processor {
             program_id,
             player_info,
             system_program_info,
-            player_pk,
+            player_pk, //this ensures the player state matches player_info
             game_state.round_id,
             game_state.version,
         )?;
+        //ensure the user actually owns player_info
+        if !player_info.is_signer {
+            return Err(SomeError::BadError.into());
+        }
 
         // --------------------------------------- calc & prep vaiables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
@@ -151,7 +264,7 @@ impl Processor {
         spl_token_transfer(TokenTransferParams {
             source: player_token_info.clone(),
             destination: pot_info.clone(),
-            authority: player_info.clone(), //this automatically enforces player_info is a signer, thus verifying that acc
+            authority: player_info.clone(), //this also enforces player_info to be a signer
             token_program: token_program_info.clone(),
             amount: sol_to_be_added.try_cast()?,
             authority_signer_seeds: &[],
@@ -327,7 +440,7 @@ impl Processor {
 
         // --------------------------------------- update state (NOTE: must go last or get pointer alignment error)
 
-        let pot = Account::unpack(&pot_info.data.borrow_mut())?;
+        let pot = Account::unpack(&pot_info.data.borrow())?;
         let clock = Clock::get()?;
         let mut round_state: RoundState =
             RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
@@ -378,46 +491,6 @@ impl Processor {
 
         Ok(())
     }
-
-    pub fn process_withdraw_sol(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
-        let account_info_iter = &mut accounts.iter();
-        let game_state_info = next_account_info(account_info_iter)?;
-        let pot_info = next_account_info(account_info_iter)?;
-        let user_info = next_account_info(account_info_iter)?;
-        let token_program = next_account_info(account_info_iter)?;
-
-        //todo need a check to ensure the pk listed on this account is passed in as a signer - else anyone could withdraw
-
-        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
-
-        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
-        let game_state_bump =
-            find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
-        let pot_seed = format!("{}{}{}", POT_SEED, game_state.round_id, game_state.version);
-        find_and_verify_pda(pot_seed.as_bytes(), program_id, pot_info)?;
-
-        // todo this check will fail coz owner = token_program. I wonder if there is another check that I need to do in place
-        // if *pot_info.owner != *fomo3d_state_info.key {
-        //     msg!("owner of pot account is not fomo3d");
-        //     return Err(SomeError::BadError.into());
-        // }
-
-        let spl_transfer_params = TokenTransferParams {
-            source: pot_info.clone(),
-            destination: user_info.clone(),
-            amount: 1,
-            authority: game_state_info.clone(),
-            authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
-            token_program: token_program.clone(),
-        };
-
-        spl_token_transfer(spl_transfer_params)?;
-        Ok(())
-    }
-
-    pub fn process_x(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
-        Ok(())
-    }
 }
 
 // ============================================================================= helpers
@@ -440,6 +513,7 @@ fn calculate_player_f3d_share(
     player_keys.try_mul(accum_f3d)?.try_floor_div(total_keys)
 }
 
+//todo problem with this check - what if someone randomly sends tokens to the pot? then the amount won't match ofc
 /// Checks whether actual funds in the pot equate to total of all the parties' shares.
 fn verify_round_state(round_state: &RoundState, pot_info: &AccountInfo) -> ProgramResult {
     let actual_money_in_pot = Account::unpack(&pot_info.data.borrow())?.amount;

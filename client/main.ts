@@ -168,40 +168,6 @@ async function initRound() {
     //todo unpack and verify round state
 }
 
-async function sendAndGetBack() {
-    //todo this test ofc has to change - currently we're hardcoding a transfer of 1 lamport program-side
-    console.log('// --------------------------------------- send and back')
-    let amount;
-    //send there
-    await wSolMint.transfer(
-        wSolAliceAcc,
-        wSolPot,
-        aliceKp,
-        [],
-        5
-    );
-    amount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('pot has', amount);
-    assert(amount == 5);
-
-    //send back
-    const data = Buffer.from(Uint8Array.of(3));
-    const payOutIx = new TransactionInstruction({
-        keys: [
-            {pubkey: gameState, isSigner: false, isWritable: false},
-            {pubkey: wSolPot, isSigner: false, isWritable: true},
-            {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
-            {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
-        ],
-        programId: OUR_PROGRAM_ID,
-        data: data,
-    });
-    await prepareAndSendTx([payOutIx], [ownerKp]);
-    amount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('pot has', amount);
-    assert(amount == 4);
-}
-
 async function purchaseKeys() {
     console.log('// --------------------------------------- purchase keys')
     let bump;
@@ -215,7 +181,7 @@ async function purchaseKeys() {
     //init round ix
     const data = Buffer.from(Uint8Array.of(2,
         ...new BN(LAMPORTS_PER_SOL).toArray('le', 16), //1 sol
-        ...new BN(1).toArray('le', 1), //1st team
+        ...new BN(1).toArray('le', 1), //team bear
     ));
     const purchaseKeysIx = new TransactionInstruction({
         keys: [
@@ -237,6 +203,40 @@ async function purchaseKeys() {
     });
     await prepareAndSendTx([purchaseKeysIx], [aliceKp]);
     //todo unpack and verify changes to game/round state
+
+    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
+    console.log('post purchase, pot has', potAmount as any / LAMPORTS_PER_SOL);
+    let aliceAmount = (await connection.getTokenAccountBalance(wSolAliceAcc)).value.uiAmount;
+    console.log('post purchase, alice has', aliceAmount as any / LAMPORTS_PER_SOL);
+}
+
+async function withdrawSol() {
+    console.log('// --------------------------------------- withdraw sol')
+    const data = Buffer.from(Uint8Array.of(3, ...new BN(round).toArray('le', 8)));
+    const withdrawSolIx = new TransactionInstruction({
+        keys: [
+            {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
+            {pubkey: gameState, isSigner: false, isWritable: false},
+            {pubkey: roundState, isSigner: false, isWritable: false},
+            {pubkey: playerRoundState, isSigner: false, isWritable: true},
+            {pubkey: wSolPot, isSigner: false, isWritable: true},
+            {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
+            {
+                pubkey: SystemProgram.programId,
+                isSigner: false,
+                isWritable: false
+            },
+            {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
+        ],
+        programId: OUR_PROGRAM_ID,
+        data: data,
+    });
+    await prepareAndSendTx([withdrawSolIx], [aliceKp]);
+
+    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
+    console.log('post withdrawal, pot has', potAmount as any / LAMPORTS_PER_SOL);
+    let aliceAmount = (await connection.getTokenAccountBalance(wSolAliceAcc)).value.uiAmount;
+    console.log('post withdrawal, alice has', aliceAmount as any / LAMPORTS_PER_SOL);
 }
 
 // ============================================================================= play
@@ -246,8 +246,8 @@ async function play() {
     await getConnection();
     await initGame();
     await initRound();
-    // await sendAndGetBack();
     await purchaseKeys();
+    await withdrawSol();
 }
 
 play()

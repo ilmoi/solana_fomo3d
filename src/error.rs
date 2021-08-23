@@ -1,9 +1,8 @@
-use solana_program::program_error::{ProgramError, PrintProgramError};
-use solana_program::{decode_error::DecodeError, msg};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
+use solana_program::program_error::{PrintProgramError, ProgramError};
+use solana_program::{decode_error::DecodeError, msg};
 use thiserror::Error;
-
 
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum SomeError {
@@ -38,3 +37,6 @@ impl PrintProgramError for SomeError {
         }
     }
 }
+
+//todo obv need better errors - do them together with the various checks I'll add in processor
+//todo clean up comments and un-used fns/ vars
