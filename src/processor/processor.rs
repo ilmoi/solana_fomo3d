@@ -1,16 +1,5 @@
-use crate::error::SomeError;
-use crate::instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams};
-use crate::math::common::{TryAdd, TryCast, TryDiv, TryMul, TrySub};
-use crate::math::curve::keys_received;
-use crate::state::{
-    GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT,
-    GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME,
-    ROUND_STATE_SIZE, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
-};
-use crate::util::rng::pseudo_rng;
-use crate::util::spl_token::{
-    spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
-};
+use std::ops::Deref;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::clock::Clock;
@@ -26,12 +15,25 @@ use solana_program::system_instruction::{create_account, transfer, transfer_with
 use solana_program::sysvar::rent::Rent;
 use solana_program::sysvar::Sysvar;
 use spl_token::state::Account;
-use std::ops::Deref;
 
-pub const POT_SEED: &str = "pot";
-pub const GAME_STATE_SEED: &str = "game";
-pub const ROUND_STATE_SEED: &str = "round";
-pub const PLAYER_ROUND_STATE_SEED: &str = "pr";
+use crate::error::SomeError;
+use crate::instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams};
+use crate::math::common::{TryAdd, TryCast, TryDiv, TryMul, TrySub};
+use crate::math::curve::keys_received;
+use crate::processor::pda::{
+    create_game_state, create_pot, create_round_state, deserialize_game_state,
+    deserialize_or_create_player_round_state, deserialize_pot, deserialize_round_state,
+};
+use crate::processor::rng::pseudo_rng;
+use crate::processor::spl_token::{
+    spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
+};
+use crate::processor::util::{airdrop_winner, calculate_player_f3d_share, verify_round_state};
+use crate::state::{
+    GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT,
+    GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME,
+    ROUND_STATE_SIZE, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+};
 
 pub struct Processor {}
 
@@ -67,6 +69,10 @@ impl Processor {
     }
 
     pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let game_state_info = next_account_info(account_info_iter)?;
+        let round_state_info = next_account_info(account_info_iter)?;
+
         Ok(())
     }
 
@@ -75,6 +81,7 @@ impl Processor {
         accounts: &[AccountInfo],
         withdraw_params: WithdrawSolParams,
     ) -> ProgramResult {
+        //todo be sure to test with more than 1 round
         let account_info_iter = &mut accounts.iter();
         let player_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
@@ -85,45 +92,30 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        //todo be sure to test with more than 1 round
         let WithdrawSolParams { withdraw_for_round } = withdraw_params;
 
-        let player_pk = player_info.key;
-
-        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow())?;
-        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
-        let game_state_bump =
-            find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
-
-        let round_state: RoundState = RoundState::try_from_slice(&round_state_info.data.borrow())?;
-        let round_state_seed = format!(
-            "{}{}{}",
-            ROUND_STATE_SEED, withdraw_for_round, game_state.version
-        );
-        find_and_verify_pda(round_state_seed.as_bytes(), program_id, round_state_info)?;
-
-        let pot_seed = format!("{}{}{}", POT_SEED, withdraw_for_round, game_state.version);
-        find_and_verify_pda(pot_seed.as_bytes(), program_id, pot_info)?;
-
-        let mut player_round_state = find_or_create_player_round_state(
-            player_round_state_info,
-            program_id,
-            player_info,
-            system_program_info,
-            player_pk, //this ensures the player state matches player_info
+        let (game_state, game_state_seed, game_state_bump) =
+            deserialize_game_state(game_state_info, program_id)?;
+        let round_state = deserialize_round_state(
+            round_state_info,
             withdraw_for_round,
             game_state.version,
+            program_id,
+        )?;
+        deserialize_pot(pot_info, withdraw_for_round, game_state.version, program_id)?;
+        let mut player_round_state = deserialize_or_create_player_round_state(
+            player_round_state_info,
+            player_info,
+            system_program_info,
+            player_info.key,
+            withdraw_for_round,
+            game_state.version,
+            program_id,
         )?;
         //ensure the user actually owns player_info
         if !player_info.is_signer {
             return Err(SomeError::BadError.into());
         }
-
-        // todo this check will fail coz owner = token_program. I wonder if there is another check that I need to do in place
-        // if *pot_info.owner != *fomo3d_state_info.key {
-        //     msg!("owner of pot account is not fomo3d");
-        //     return Err(SomeError::BadError.into());
-        // }
 
         // --------------------------------------- calc withdrawal amounts
         let winnings_to_withdraw = if round_state.ended {
@@ -188,31 +180,36 @@ impl Processor {
             team,
             // affiliate_pk,
         } = purchase_params;
-
         let player_pk = player_info.key;
 
-        let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow())?;
-        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
-        find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
-
-        let mut round_state: RoundState =
-            RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
-
-        let mut player_round_state = find_or_create_player_round_state(
-            player_round_state_info,
-            program_id,
-            player_info,
-            system_program_info,
-            player_pk, //this ensures the player state matches player_info
+        let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        let mut round_state = deserialize_round_state(
+            round_state_info,
             game_state.round_id,
             game_state.version,
+            program_id,
+        )?;
+        deserialize_pot(
+            pot_info,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
+        let mut player_round_state = deserialize_or_create_player_round_state(
+            player_round_state_info,
+            player_info,
+            system_program_info,
+            player_pk,
+            game_state.round_id,
+            game_state.version,
+            program_id,
         )?;
         //ensure the user actually owns player_info
         if !player_info.is_signer {
             return Err(SomeError::BadError.into());
         }
 
-        // --------------------------------------- calc & prep vaiables
+        // --------------------------------------- calc & prep variables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
         sol_to_be_added = if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
             && player_round_state.accum_sol_added + sol_to_be_added > LAMPORTS_PER_SOL as u128
@@ -320,14 +317,14 @@ impl Processor {
         if player_round_state.has_affiliate() {
             //optional account passed only if affiliate listed
             let affiliate_round_state_info = next_account_info(account_info_iter)?;
-            let mut affiliate_round_state = find_or_create_player_round_state(
+            let mut affiliate_round_state = deserialize_or_create_player_round_state(
                 affiliate_round_state_info,
-                program_id,
                 player_info,
                 system_program_info,
                 &player_round_state.last_affiliate_pk,
                 game_state.round_id,
                 game_state.version,
+                program_id,
             )?;
             affiliate_round_state.accum_aff += affiliate_share;
             round_state.accum_aff_share += affiliate_share;
@@ -394,56 +391,36 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        // --------------------------------------- verify game state
-        let mut game_state: GameState =
-            GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
-        let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
-        find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
-
         //todo need some sort of check that the previous round has ended to start a new round
         //todo also some sort of check on who can start the round
 
-        let new_round = game_state.round_id + 1;
+        let (mut game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        game_state.round_id += 1;
 
-        // --------------------------------------- create round state
-        let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, new_round, game_state.version);
-        create_pda_with_space(
-            round_state_seed.as_bytes(),
+        let mut round_state = create_round_state(
             round_state_info,
-            ROUND_STATE_SIZE,
-            program_id,
             funder_info,
             system_program_info,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
+        let pot = create_pot(
+            pot_info,
+            game_state_info,
+            funder_info,
+            mint_info,
+            rent_info,
+            system_program_info,
+            token_program_info,
+            game_state.round_id,
+            game_state.version,
             program_id,
         )?;
 
-        // --------------------------------------- create round pot
-        let pot_seed = format!("{}{}{}", POT_SEED, new_round, game_state.version);
-        create_pda_with_space(
-            pot_seed.as_bytes(),
-            pot_info,
-            spl_token::state::Account::get_packed_len(),
-            &spl_token::id(),
-            funder_info,
-            system_program_info,
-            program_id,
-        )?;
-        // initialize + give the pda "ownership" over it
-        spl_token_init_account(TokenInitializeAccountParams {
-            account: pot_info.clone(),
-            mint: mint_info.clone(),
-            owner: game_state_info.clone(),
-            rent: rent_info.clone(),
-            token_program: token_program_info.clone(),
-        })?;
         //todo transfer money from previous round's pot, if such exists
 
-        // --------------------------------------- update state (NOTE: must go last or get pointer alignment error)
-
-        let pot = Account::unpack(&pot_info.data.borrow())?;
         let clock = Clock::get()?;
-        let mut round_state: RoundState =
-            RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
 
         // all attributes not mentioned automatically start at 0.
         round_state.round_id = game_state.round_id;
@@ -453,7 +430,6 @@ impl Processor {
         round_state.accum_sol_pot = pot.amount as u128;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
-        game_state.round_id = new_round;
         game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -469,20 +445,16 @@ impl Processor {
         let game_state_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
 
-        let game_state_seed = format!("{}{}", GAME_STATE_SEED, version);
-        create_pda_with_space(
-            game_state_seed.as_bytes(),
+        let mut game_state = create_game_state(
             game_state_info,
-            GAME_STATE_SIZE,
-            program_id,
             funder_info,
             system_program_info,
+            version,
             program_id,
         )?;
 
-        let mut game_state: GameState =
-            GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
-        game_state.round_id = 0; //will be incremented to 1 when 1st round initialized
+        //will be incremented to 1 when 1st round initialized
+        game_state.round_id = 0;
         game_state.round_init_time = ROUND_INIT_TIME;
         game_state.round_inc_time = ROUND_INC_TIME;
         game_state.round_max_time = ROUND_MAX_TIME;
@@ -491,156 +463,6 @@ impl Processor {
 
         Ok(())
     }
-}
-
-// ============================================================================= helpers
-
-/// The original math for this is unnecessary convoluted and we decided to ignore it.
-/// Ultimately this comes down to a simple equation: (player's keys / total keys) * total f3d earnings.
-/// That's the approach taken below. For anyone interested in original math follow these links:
-/// https://gist.github.com/ilmoi/4daad0d6e9730cc6af833c065a95b717#file-fomo-sol-L1533
-/// https://gist.github.com/ilmoi/4daad0d6e9730cc6af833c065a95b717#file-fomo-sol-L1125
-fn calculate_player_f3d_share(
-    player_keys: u128,
-    total_keys: u128,
-    accum_f3d: u128,
-) -> Result<u128, ProgramError> {
-    //in theory, there might be unaccounted dust left here.
-    //eg player1 keys = 333, player2 keys =  total keys = 1000, f3t pot = 100
-    //then player1 will get 33, player2 will get 66, and 1 will be left as dust
-    //in practice, however, to account for it would have to coordinate all withdrawals by all players
-    //which of course isn't possible. So it will just be left in the protocol
-    player_keys.try_mul(accum_f3d)?.try_floor_div(total_keys)
-}
-
-//todo problem with this check - what if someone randomly sends tokens to the pot? then the amount won't match ofc
-/// Checks whether actual funds in the pot equate to total of all the parties' shares.
-fn verify_round_state(round_state: &RoundState, pot_info: &AccountInfo) -> ProgramResult {
-    let actual_money_in_pot = Account::unpack(&pot_info.data.borrow())?.amount;
-    let supposed_money_in_pot = round_state.accum_community_share
-        + round_state.accum_airdrop_share
-        + round_state.accum_next_round_share
-        + round_state.accum_aff_share
-        + round_state.accum_p3d_share
-        + round_state.accum_f3d_share
-        + round_state.accum_prize_share;
-    msg!("{}, {}", actual_money_in_pot as u128, supposed_money_in_pot);
-    assert_eq!(actual_money_in_pot as u128, supposed_money_in_pot);
-    Ok(())
-}
-
-fn find_or_create_player_round_state<'a>(
-    player_round_state_info: &AccountInfo<'a>,
-    program_id: &Pubkey,
-    funder_info: &AccountInfo<'a>,
-    system_program_info: &AccountInfo<'a>,
-    player_pk: &Pubkey,
-    round_id: u64,
-    version: u8,
-) -> Result<PlayerRoundState, ProgramError> {
-    let player_round_state_seed = format!(
-        "{}{}{}{}",
-        PLAYER_ROUND_STATE_SEED,      //2
-        &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
-        round_id,                     //8
-        version                       //1
-    );
-
-    find_and_verify_pda(
-        player_round_state_seed.as_bytes(),
-        program_id,
-        player_round_state_info,
-    )?;
-
-    if !account_exists(player_round_state_info) {
-        create_pda_with_space(
-            player_round_state_seed.as_bytes(),
-            player_round_state_info,
-            PLAYER_ROUND_STATE_SIZE,
-            program_id,
-            funder_info,
-            system_program_info,
-            program_id,
-        )?;
-        let mut player_round_state: PlayerRoundState =
-            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
-        //initially set the player's public key and round id
-        player_round_state.player_pk = *player_pk;
-        player_round_state.round_id = round_id;
-        Ok(player_round_state)
-    } else {
-        msg!(
-            "account for player {} for round {} already exists!",
-            player_pk,
-            round_id
-        );
-        PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())
-            .map_err(|_| SomeError::BadError.into())
-    }
-}
-
-fn airdrop_winner(
-    player_pk: &Pubkey,
-    clock: &Clock,
-    airdrop_tracker: u64,
-) -> Result<bool, ProgramError> {
-    let lottery_ticket = pseudo_rng(player_pk, clock)?;
-    Ok(lottery_ticket < airdrop_tracker as u128)
-}
-
-fn account_exists(acc: &AccountInfo) -> bool {
-    let does_not_exist = **acc.lamports.borrow() == 0 || acc.data_is_empty();
-    !does_not_exist
-}
-
-fn find_and_verify_pda(
-    pda_seed: &[u8],
-    program_id: &Pubkey,
-    pda_info: &AccountInfo,
-) -> Result<u8, ProgramError> {
-    let (pda, bump_seed) = Pubkey::find_program_address(&[pda_seed], program_id);
-    if pda != *pda_info.key {
-        msg!("pda doesnt match: {}, {}", pda, *pda_info.key);
-        return Err(SomeError::BadError.into());
-    }
-    Ok(bump_seed)
-}
-
-fn create_pda_with_space<'a>(
-    pda_seed: &[u8],
-    pda_info: &AccountInfo<'a>,
-    space: usize,
-    owner: &Pubkey,
-    funder_info: &AccountInfo<'a>,
-    system_program_info: &AccountInfo<'a>,
-    program_id: &Pubkey,
-) -> Result<u8, ProgramError> {
-    let bump_seed = find_and_verify_pda(pda_seed, program_id, pda_info)?;
-    let full_seeds: &[&[_]] = &[pda_seed, &[bump_seed]];
-
-    //create a PDA and allocate space inside of it at the same time
-    //can only be done from INSIDE the program
-    invoke_signed(
-        &create_account(
-            &funder_info.key,
-            &pda_info.key,
-            1.max(Rent::get()?.minimum_balance(space)),
-            space as u64,
-            owner,
-        ),
-        &[
-            //yes need all three
-            //https://github.com/solana-labs/solana-program-library/blob/7c8e65292a6ebc90de54468c665e30bc590c513a/feature-proposal/program/src/processor.rs#L148-L163
-            //(!) need to do .clone() even though we did .clone() to pass in the args - otherwise get an error around access violation
-            funder_info.clone(),
-            pda_info.clone(),
-            system_program_info.clone(),
-        ],
-        &[full_seeds], //this is the part you can't do outside the program
-    )?;
-
-    msg!("pda created");
-    Ok(bump_seed)
 }
 
 //todo add rent checks

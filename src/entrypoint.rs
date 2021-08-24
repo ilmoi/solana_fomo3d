@@ -12,7 +12,8 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if let Err(e) = processor::Processor::process_instruction(program_id, accounts, data) {
+    if let Err(e) = processor::processor::Processor::process_instruction(program_id, accounts, data)
+    {
         e.print::<SomeError>();
         return Err(e);
     }
