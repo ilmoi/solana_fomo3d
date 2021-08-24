@@ -2,12 +2,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::pubkey::Pubkey;
 
 use crate::processor::util::is_zero;
+use std::str::FromStr;
 
 pub type UnixTimestamp = i64;
 
 // --------------------------------------- game state
 
-pub const GAME_STATE_SIZE: usize = (8 * 4) + 1;
+pub const GAME_STATE_SIZE: usize = (8 * 4) + 1 + (32 * 4);
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct GameState {
     pub round_id: u64,        //round id number / total rounds that have happened
@@ -15,6 +16,11 @@ pub struct GameState {
     pub round_inc_time: i64,  //in seconds, how much each key purchase increases the time
     pub round_max_time: i64,  //in seconds, max timer time
     pub version: u8,
+    pub mint: Pubkey,
+    //privileged accounts
+    pub game_creator: Pubkey,
+    pub community_wallet: Pubkey,
+    pub p3d_wallet: Pubkey,
 }
 
 // pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
@@ -75,7 +81,7 @@ pub struct SolByTeam {
 // --------------------------------------- round
 
 pub const ROUND_STATE_SIZE: usize =
-    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (10 * 16) + 8;
+    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (13 * 16) + 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
     pub round_id: u64,
@@ -99,6 +105,10 @@ pub struct RoundState {
     pub accum_f3d_share: u128, //sum of all f3d shares paid out to users (used for checks & balances)
     pub still_in_play: u128,
     pub final_prize_share: u128, //will be filled when round ends
+    //withdrawal history (used to offset any future attempts)
+    pub withdrawn_com: u128,
+    pub withdrawn_next_round: u128,
+    pub withdrawn_p3d: u128,
     //airdrop
     pub airdrop_tracker: u64, //increment each time a qualified tx occurs
 }
@@ -118,7 +128,7 @@ pub struct PlayerRoundState {
     //NOTE: f3d share is calculated dynamically at the time of withdrawal due to constantly changing key ratio
     pub accum_winnings: u128, //accumulated winnings from 1)the airdrop lottery, 2)the final prize
     pub accum_aff: u128,      //accumulated affiliate dividends
-    //withdrawal history (subtracted from any future attempts)
+    //withdrawal history (used to offset any future attempts)
     pub withdrawn_winnings: u128,
     pub withdrawn_aff: u128,
     pub withdrawn_f3d: u128,

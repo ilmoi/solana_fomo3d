@@ -4,6 +4,7 @@ use solana_program::program_error::ProgramError;
 use spl_math::approximations::sqrt;
 
 use crate::{error::SomeError, math::precise::CheckedCeilDiv};
+use solana_program::entrypoint::ProgramResult;
 
 pub trait TrySub: Sized {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError>;
@@ -11,6 +12,7 @@ pub trait TrySub: Sized {
 
 pub trait TryAdd: Sized {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError>;
+    fn try_self_add(self, rhs: Self) -> ProgramResult;
 }
 
 pub trait TryDiv<RHS>: Sized {
@@ -93,6 +95,11 @@ impl TrySub for u128 {
 impl TryAdd for u128 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
         self.checked_add(rhs).ok_or(SomeError::BadError.into())
+    }
+    //useful when updating accumulated values in place
+    fn try_self_add(mut self, rhs: Self) -> ProgramResult {
+        self = self.try_add(rhs)?;
+        Ok(())
     }
 }
 
@@ -247,4 +254,13 @@ mod tests {
         let r = x.try_ceil_div(y).unwrap();
         assert_eq!(r, 3);
     }
+
+    //todo come back to this after SO answer
+    // #[test]
+    // fn test_self_add() {
+    //     let x = 10;
+    //     let y = 2;
+    //     x.try_self_add(y).unwrap();
+    //     assert_eq!(x, 12);
+    // }
 }

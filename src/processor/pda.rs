@@ -166,17 +166,16 @@ pub fn deserialize_or_create_player_round_state<'a>(
 /// Builds seed + verifies + deserializes pda
 pub fn deserialize_pot<'a>(
     pot_info: &AccountInfo<'a>,
+    game_state_info: &AccountInfo<'a>,
     round_id: u64,
     version: u8,
     program_id: &Pubkey,
 ) -> Result<Account, ProgramError> {
-    // todo this check will fail coz owner = token_program. I wonder if there is another check that I need to do in place
-    // if *pot_info.owner != *fomo3d_state_info.key {
-    //     msg!("owner of pot account is not fomo3d");
-    //     return Err(SomeError::BadError.into());
-    // }
-
     let pot = Account::unpack(&pot_info.data.borrow_mut())?;
+    if pot.owner != *game_state_info.key {
+        //bad owner or something
+        return Err(SomeError::BadError.into());
+    }
     let pot_seed = format!("{}{}{}", POT_SEED, round_id, version);
     verify_pda_matches(pot_seed.as_bytes(), program_id, pot_info)?;
     Ok(pot)

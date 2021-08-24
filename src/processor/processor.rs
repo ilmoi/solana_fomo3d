@@ -14,7 +14,7 @@ use crate::processor::util::round_ended;
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::SomeError,
-    instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams},
+    instruction::{GameInstruction, PurchaseKeysParams, WithdrawParams},
     math::{
         common::{TryAdd, TryCast, TryDiv, TryMul, TrySub},
         curve::keys_received,
@@ -32,6 +32,8 @@ use crate::{
         ROUND_MAX_TIME, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
     },
 };
+use spl_token::solana_program::program_pack::Pack;
+use spl_token::state::Account;
 
 pub struct Processor {}
 
@@ -63,196 +65,109 @@ impl Processor {
                 msg!("end round");
                 Self::process_end_round(program_id, accounts)
             }
+            GameInstruction::WithdrawCommunityRewards(withdraw_params) => {
+                msg!("withdraw community rewards");
+                Self::process_community_withdrawal(program_id, accounts, withdraw_params)
+            }
+            GameInstruction::WithdrawP3DRewards(withdraw_params) => {
+                msg!("withdraw p3d rewards");
+                Self::process_p3d_withdrawal(program_id, accounts, withdraw_params)
+            }
         }
     }
 
-    pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    pub fn process_initialize_game(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        version: u8,
+    ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
+        let game_creator_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
-        let round_state_info = next_account_info(account_info_iter)?;
-        let winner_state_info = next_account_info(account_info_iter)?;
+        let com_wallet_info = next_account_info(account_info_iter)?;
+        let p3d_wallet_info = next_account_info(account_info_iter)?;
+        let mint_info = next_account_info(account_info_iter)?;
+        let system_program_info = next_account_info(account_info_iter)?;
 
-        let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
-        let mut round_state = deserialize_round_state(
-            round_state_info,
-            game_state.round_id,
-            game_state.version,
+        //todo verify mint info is a mint account and that comm and p3d wallets belong to it
+
+        let mut game_state = create_game_state(
+            game_state_info,
+            game_creator_info,
+            system_program_info,
+            version,
             program_id,
         )?;
 
-        if !round_ended(&round_state)? {
-            msg!("round is still on-going");
-            return Err(SomeError::BadError.into());
-        }
-
-        let mut player_round_state = deserialize_player_round_state(
-            winner_state_info,
-            &round_state.lead_player_pk,
-            game_state.round_id,
-            game_state.version,
-            program_id,
-        )?;
-
-        // --------------------------------------- calc shares
-        let to_be_divided = round_state.still_in_play;
-
-        let pot_split = match round_state.lead_player_team {
-            Team::Whale => WHALE_POT_SPLIT,
-            Team::Bear => BEAR_POT_SPLIT,
-            Team::Snek => SNEK_POT_SPLIT,
-            Team::Bull => BULL_POT_SPLIT,
-        };
-        let next_round_percent = 50
-            .try_sub(pot_split.p3d as u128)?
-            .try_sub(pot_split.f3d as u128)?;
-
-        //2% to community
-        let community_share = to_be_divided.try_floor_div(50)?;
-
-        //p3d/f3d/next round according to team (always adds up to 50%)
-        let p3d_share = to_be_divided
-            .try_mul(pot_split.p3d as u128)?
-            .try_floor_div(100)?;
-        let f3d_share = to_be_divided
-            .try_mul(pot_split.f3d as u128)?
-            .try_floor_div(100)?;
-        let next_round_share = to_be_divided
-            .try_mul(next_round_percent)?
-            .try_floor_div(100)?;
-
-        //remaining 48% + dust to winner
-        let grand_prize = to_be_divided
-            .try_sub(community_share)?
-            .try_sub(f3d_share)?
-            .try_sub(p3d_share)?
-            .try_sub(next_round_share)?;
-        assert!(grand_prize >= to_be_divided.try_mul(48)?.try_floor_div(100)?);
-
-        msg!("{}", to_be_divided); //todo temp
-        msg!("{}", community_share);
-        msg!("{}", f3d_share);
-        msg!("{}", p3d_share);
-        msg!("{}", next_round_share);
-
-        // --------------------------------------- assign funds to winner
-        player_round_state.accum_winnings += grand_prize;
-        player_round_state.serialize(&mut *winner_state_info.data.borrow_mut())?;
-
-        // --------------------------------------- update round state
-        round_state.ended = true;
-        //update shares
-        round_state.accum_community_share += community_share;
-        round_state.accum_next_round_share += next_round_share;
-        round_state.accum_p3d_share += p3d_share;
-        round_state.accum_f3d_share += f3d_share;
-        round_state.final_prize_share += grand_prize;
-        round_state.still_in_play = 0;
-        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
-
-        verify_round_state(&round_state)?;
+        //will be incremented to 1 when 1st round initialized
+        game_state.round_id = 0;
+        game_state.round_init_time = ROUND_INIT_TIME;
+        game_state.round_inc_time = ROUND_INC_TIME;
+        game_state.round_max_time = ROUND_MAX_TIME;
+        game_state.version = version;
+        game_state.mint = *mint_info.key;
+        game_state.game_creator = *game_creator_info.key;
+        game_state.community_wallet = *com_wallet_info.key;
+        game_state.p3d_wallet = *p3d_wallet_info.key;
+        game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
         Ok(())
     }
 
-    pub fn process_p3d_withdrawal(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
-        let account_info_iter = &mut accounts.iter();
-
-        Ok(())
-    }
-
-    pub fn process_community_withdrawal(
+    pub fn process_initialize_round(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-
-        Ok(())
-    }
-
-    pub fn process_withdraw_sol(
-        program_id: &Pubkey,
-        accounts: &[AccountInfo],
-        withdraw_params: WithdrawSolParams,
-    ) -> ProgramResult {
-        //todo be sure to test with more than 1 round
-        let account_info_iter = &mut accounts.iter();
-        let player_info = next_account_info(account_info_iter)?;
+        let funder_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
-        let player_round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
-        let player_token_info = next_account_info(account_info_iter)?;
+        let mint_info = next_account_info(account_info_iter)?;
+        let rent_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        let WithdrawSolParams { withdraw_for_round } = withdraw_params;
+        //todo need some sort of check that the previous round has ended to start a new round
+        //todo also some sort of check on who can start the round
+        //todo verify mint info
 
-        let (game_state, game_state_seed, game_state_bump) =
-            deserialize_game_state(game_state_info, program_id)?;
-        let round_state = deserialize_round_state(
+        let (mut game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        game_state.round_id += 1;
+
+        let mut round_state = create_round_state(
             round_state_info,
-            withdraw_for_round,
-            game_state.version,
-            program_id,
-        )?;
-        deserialize_pot(pot_info, withdraw_for_round, game_state.version, program_id)?;
-        let mut player_round_state = deserialize_or_create_player_round_state(
-            player_round_state_info,
-            player_info,
+            funder_info,
             system_program_info,
-            player_info.key,
-            withdraw_for_round,
+            game_state.round_id,
             game_state.version,
             program_id,
         )?;
-        //ensure the user actually owns player_info
-        if !player_info.is_signer {
-            return Err(SomeError::BadError.into());
-        }
+        let pot = create_pot(
+            pot_info,
+            game_state_info,
+            funder_info,
+            mint_info,
+            rent_info,
+            system_program_info,
+            token_program_info,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
 
-        // --------------------------------------- calc withdrawal amounts
-        // No, you don't need to wait for round end to withdraw winnings.
-        // Grand prize will not have been added yet,
-        // and airdrop lottery winnings should be available to user to withdraw.
-        let winnings_to_withdraw = player_round_state
-            .accum_winnings
-            .try_sub(player_round_state.withdrawn_winnings)?;
-        let aff_to_withdraw = player_round_state
-            .accum_aff
-            .try_sub(player_round_state.withdrawn_aff)?;
-        let f3d_to_withdraw = calculate_player_f3d_share(
-            player_round_state.accum_keys,
-            round_state.accum_keys,
-            round_state.accum_f3d_share,
-        )?
-        .try_sub(player_round_state.withdrawn_f3d)?;
-        let total_to_withdraw = winnings_to_withdraw
-            .try_add(aff_to_withdraw)?
-            .try_add(f3d_to_withdraw)?;
-        if total_to_withdraw == 0 {
-            return Ok(());
-        }
+        //todo transfer money from previous round's pot, if such exists
 
-        msg!("{}", winnings_to_withdraw); //todo temp
-        msg!("{}", aff_to_withdraw);
-        msg!("{}", f3d_to_withdraw);
-        msg!("{}", total_to_withdraw);
+        let clock = Clock::get()?;
 
-        // --------------------------------------- transfer tokens
-        spl_token_transfer(TokenTransferParams {
-            source: pot_info.clone(),
-            destination: player_token_info.clone(),
-            amount: total_to_withdraw.try_cast()?,
-            authority: game_state_info.clone(),
-            authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
-            token_program: token_program_info.clone(),
-        })?;
-
-        // --------------------------------------- update player state
-        player_round_state.withdrawn_aff += aff_to_withdraw;
-        player_round_state.withdrawn_winnings += winnings_to_withdraw;
-        player_round_state.withdrawn_f3d += f3d_to_withdraw;
-        player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
+        // all attributes not mentioned automatically start at 0.
+        round_state.round_id = game_state.round_id;
+        round_state.start_time = clock.unix_timestamp;
+        round_state.end_time = round_state.start_time + ROUND_INIT_TIME;
+        round_state.ended = false;
+        round_state.accum_sol_pot = pot.amount as u128;
+        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
+        game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
         Ok(())
     }
@@ -275,7 +190,7 @@ impl Processor {
         let PurchaseKeysParams {
             mut sol_to_be_added,
             team,
-            // affiliate_pk,
+            // affiliate_pk, //todo replace with a system where we check for 1 more passed key
         } = purchase_params;
         let player_pk = player_info.key;
 
@@ -292,6 +207,7 @@ impl Processor {
         }
         deserialize_pot(
             pot_info,
+            game_state_info,
             game_state.round_id,
             game_state.version,
             program_id,
@@ -404,7 +320,6 @@ impl Processor {
 
         // --------------------------------------- calc shares
         //2% to community
-        //todo impl mechanism where only community member can withdraw
         let community_share = sol_to_be_added.try_floor_div(50)?;
         //1% to future airdrops
         let airdrop_share = sol_to_be_added.try_floor_div(100)?;
@@ -413,7 +328,6 @@ impl Processor {
         //10% to affiliate
         let mut affiliate_share = sol_to_be_added.try_floor_div(10)?;
 
-        //todo impl mechanism where only p3d member can withdraw
         let mut p3d_share = 0;
         let mut f3d_share = 0;
 
@@ -491,93 +405,271 @@ impl Processor {
         Ok(())
     }
 
-    pub fn process_initialize_round(
+    pub fn process_withdraw_sol(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
+        withdraw_params: WithdrawParams,
     ) -> ProgramResult {
+        //todo be sure to test with more than 1 round
         let account_info_iter = &mut accounts.iter();
-        let funder_info = next_account_info(account_info_iter)?;
+        let player_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
+        let player_round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
-        let mint_info = next_account_info(account_info_iter)?;
-        let rent_info = next_account_info(account_info_iter)?;
+        let player_token_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        //todo need some sort of check that the previous round has ended to start a new round
-        //todo also some sort of check on who can start the round
+        let WithdrawParams { withdraw_for_round } = withdraw_params;
 
-        let (mut game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
-        game_state.round_id += 1;
-
-        let mut round_state = create_round_state(
+        let (game_state, game_state_seed, game_state_bump) =
+            deserialize_game_state(game_state_info, program_id)?;
+        let round_state = deserialize_round_state(
             round_state_info,
-            funder_info,
-            system_program_info,
-            game_state.round_id,
+            withdraw_for_round,
             game_state.version,
             program_id,
         )?;
-        let pot = create_pot(
+        deserialize_pot(
             pot_info,
             game_state_info,
-            funder_info,
-            mint_info,
-            rent_info,
-            system_program_info,
-            token_program_info,
-            game_state.round_id,
+            withdraw_for_round,
             game_state.version,
             program_id,
         )?;
+        let mut player_round_state = deserialize_or_create_player_round_state(
+            player_round_state_info,
+            player_info,
+            system_program_info,
+            player_info.key,
+            withdraw_for_round,
+            game_state.version,
+            program_id,
+        )?;
+        //ensure the user actually owns player_info
+        if !player_info.is_signer {
+            return Err(SomeError::BadError.into());
+        }
 
-        //todo transfer money from previous round's pot, if such exists
+        // --------------------------------------- calc withdrawal amounts
+        // No, you don't need to wait for round end to withdraw winnings.
+        // Grand prize will not have been added yet,
+        // and airdrop lottery winnings should be available to user to withdraw.
+        let winnings_to_withdraw = player_round_state
+            .accum_winnings
+            .try_sub(player_round_state.withdrawn_winnings)?;
+        let aff_to_withdraw = player_round_state
+            .accum_aff
+            .try_sub(player_round_state.withdrawn_aff)?;
+        let f3d_to_withdraw = calculate_player_f3d_share(
+            player_round_state.accum_keys,
+            round_state.accum_keys,
+            round_state.accum_f3d_share,
+        )?
+        .try_sub(player_round_state.withdrawn_f3d)?;
+        let total_to_withdraw = winnings_to_withdraw
+            .try_add(aff_to_withdraw)?
+            .try_add(f3d_to_withdraw)?;
 
-        let clock = Clock::get()?;
+        msg!("{}", winnings_to_withdraw); //todo temp
+        msg!("{}", aff_to_withdraw);
+        msg!("{}", f3d_to_withdraw);
+        msg!("{}", total_to_withdraw);
 
-        // all attributes not mentioned automatically start at 0.
-        round_state.round_id = game_state.round_id;
-        round_state.start_time = clock.unix_timestamp;
-        round_state.end_time = round_state.start_time + ROUND_INIT_TIME;
-        round_state.ended = false;
-        round_state.accum_sol_pot = pot.amount as u128;
-        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
-        game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
+        // --------------------------------------- transfer tokens
+        if total_to_withdraw == 0 {
+            return Ok(());
+        }
+        spl_token_transfer(TokenTransferParams {
+            source: pot_info.clone(),
+            destination: player_token_info.clone(),
+            amount: total_to_withdraw.try_cast()?,
+            authority: game_state_info.clone(),
+            authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
+            token_program: token_program_info.clone(),
+        })?;
+
+        // --------------------------------------- update player state
+        player_round_state.withdrawn_aff += aff_to_withdraw;
+        player_round_state.withdrawn_winnings += winnings_to_withdraw;
+        player_round_state.withdrawn_f3d += f3d_to_withdraw;
+        player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
     }
 
-    pub fn process_initialize_game(
-        program_id: &Pubkey,
-        accounts: &[AccountInfo],
-        version: u8,
-    ) -> ProgramResult {
+    pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let funder_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
-        let system_program_info = next_account_info(account_info_iter)?;
+        let round_state_info = next_account_info(account_info_iter)?;
+        let winner_state_info = next_account_info(account_info_iter)?;
 
-        let mut game_state = create_game_state(
-            game_state_info,
-            funder_info,
-            system_program_info,
-            version,
+        let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        let mut round_state = deserialize_round_state(
+            round_state_info,
+            game_state.round_id,
+            game_state.version,
             program_id,
         )?;
 
-        //will be incremented to 1 when 1st round initialized
-        game_state.round_id = 0;
-        game_state.round_init_time = ROUND_INIT_TIME;
-        game_state.round_inc_time = ROUND_INC_TIME;
-        game_state.round_max_time = ROUND_MAX_TIME;
-        game_state.version = version;
-        game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
+        if !round_ended(&round_state)? {
+            msg!("round is still on-going");
+            return Err(SomeError::BadError.into());
+        }
+
+        let mut player_round_state = deserialize_player_round_state(
+            winner_state_info,
+            &round_state.lead_player_pk,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
+
+        // --------------------------------------- calc shares
+        let to_be_divided = round_state.still_in_play;
+
+        let pot_split = match round_state.lead_player_team {
+            Team::Whale => WHALE_POT_SPLIT,
+            Team::Bear => BEAR_POT_SPLIT,
+            Team::Snek => SNEK_POT_SPLIT,
+            Team::Bull => BULL_POT_SPLIT,
+        };
+        let next_round_percent = 50
+            .try_sub(pot_split.p3d as u128)?
+            .try_sub(pot_split.f3d as u128)?;
+
+        //2% to community
+        let community_share = to_be_divided.try_floor_div(50)?;
+
+        //p3d/f3d/next round according to team (always adds up to 50%)
+        let p3d_share = to_be_divided
+            .try_mul(pot_split.p3d as u128)?
+            .try_floor_div(100)?;
+        let f3d_share = to_be_divided
+            .try_mul(pot_split.f3d as u128)?
+            .try_floor_div(100)?;
+        let next_round_share = to_be_divided
+            .try_mul(next_round_percent)?
+            .try_floor_div(100)?;
+
+        //remaining 48% + dust to winner
+        let grand_prize = to_be_divided
+            .try_sub(community_share)?
+            .try_sub(f3d_share)?
+            .try_sub(p3d_share)?
+            .try_sub(next_round_share)?;
+        assert!(grand_prize >= to_be_divided.try_mul(48)?.try_floor_div(100)?);
+
+        msg!("{}", to_be_divided); //todo temp
+        msg!("{}", community_share);
+        msg!("{}", f3d_share);
+        msg!("{}", p3d_share);
+        msg!("{}", next_round_share);
+
+        // --------------------------------------- assign funds to winner
+        player_round_state.accum_winnings += grand_prize;
+        player_round_state.serialize(&mut *winner_state_info.data.borrow_mut())?;
+
+        // --------------------------------------- update round state
+        round_state.ended = true;
+        //update shares
+        round_state.accum_community_share += community_share;
+        round_state.accum_next_round_share += next_round_share;
+        round_state.accum_p3d_share += p3d_share;
+        round_state.accum_f3d_share += f3d_share;
+        round_state.final_prize_share += grand_prize;
+        round_state.still_in_play = 0;
+        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
+
+        verify_round_state(&round_state)?;
 
         Ok(())
+    }
+
+    pub fn process_community_withdrawal(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        withdraw_params: WithdrawParams,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let game_state_info = next_account_info(account_info_iter)?;
+        let round_state_info = next_account_info(account_info_iter)?;
+        let pot_info = next_account_info(account_info_iter)?;
+        let com_wallet_info = next_account_info(account_info_iter)?;
+        let com_wallet_owner_info = next_account_info(account_info_iter)?;
+        let token_program_info = next_account_info(account_info_iter)?;
+
+        let WithdrawParams { withdraw_for_round } = withdraw_params;
+
+        let (game_state, game_state_seed, game_state_bump) =
+            deserialize_game_state(game_state_info, program_id)?;
+        let mut round_state = deserialize_round_state(
+            round_state_info,
+            withdraw_for_round,
+            game_state.version,
+            program_id,
+        )?;
+        deserialize_pot(
+            pot_info,
+            game_state_info,
+            withdraw_for_round,
+            game_state.version,
+            program_id,
+        )?;
+        //ensure the right community wallet is passed
+        if game_state.community_wallet != *com_wallet_info.key {
+            return Err(SomeError::BadError.into());
+        }
+        //ensure tx comes from community wallet's owner
+        let com_wallet = Account::unpack(&com_wallet_info.data.borrow_mut())?;
+        if com_wallet.owner != *com_wallet_owner_info.key {
+            return Err(SomeError::BadError.into());
+        }
+        if !com_wallet_owner_info.is_signer {
+            return Err(SomeError::BadError.into());
+        }
+
+        // --------------------------------------- transfer tokens
+        let amount_to_withdraw = round_state
+            .accum_community_share
+            .try_sub(round_state.withdrawn_com)?;
+        if amount_to_withdraw == 0 {
+            return Ok(());
+        }
+        spl_token_transfer(TokenTransferParams {
+            source: pot_info.clone(),
+            destination: com_wallet_info.clone(),
+            amount: amount_to_withdraw.try_cast()?,
+            authority: game_state_info.clone(),
+            authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
+            token_program: token_program_info.clone(),
+        })?;
+
+        // --------------------------------------- update round state
+        round_state.withdrawn_com += amount_to_withdraw;
+        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
+
+        Ok(())
+    }
+
+    pub fn process_p3d_withdrawal(
+        _program_id: &Pubkey,
+        _accounts: &[AccountInfo],
+        _withdraw_params: WithdrawParams,
+    ) -> ProgramResult {
+        unimplemented!(
+            "This basically follows the community withdrawal one for one, \
+                        with the only 2 differences being: \
+                        1) the destination account passed (p3d instead of com),\
+                        2) the round state amounts updated (p3d instead of com)\
+                        \
+                        Since the app is for demo purposes, decided not to duplicate code."
+        )
     }
 }
 
 //todo add rent checks
 //todo add owner checks + other checks from eg token-lending
 //todo https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
+//todo read the security stuff
