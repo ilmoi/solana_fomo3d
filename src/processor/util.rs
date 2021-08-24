@@ -1,14 +1,14 @@
 use solana_program::{
     account_info::AccountInfo, clock::Clock, entrypoint::ProgramResult, msg,
-    program_error::ProgramError, program_pack::Pack, pubkey::Pubkey,
+    program_error::ProgramError, pubkey::Pubkey,
 };
-use spl_token::state::Account;
 
 use crate::{
     math::common::{TryDiv, TryMul},
     processor::rng::pseudo_rng,
     state::RoundState,
 };
+use solana_program::sysvar::Sysvar;
 
 /// The original math for this is unnecessary convoluted and we decided to ignore it.
 /// Ultimately this comes down to a simple equation: (player's keys / total keys) * total f3d earnings.
@@ -28,19 +28,22 @@ pub fn calculate_player_f3d_share(
     player_keys.try_mul(accum_f3d)?.try_floor_div(total_keys)
 }
 
-//todo problem with this check - what if someone randomly sends tokens to the pot? then the amount won't match ofc
 /// Checks whether actual funds in the pot equate to total of all the parties' shares.
-pub fn verify_round_state(round_state: &RoundState, pot_info: &AccountInfo) -> ProgramResult {
-    let actual_money_in_pot = Account::unpack(&pot_info.data.borrow())?.amount;
+/// NOTE: considered comparing vs actual money in pot but problems arise:
+///  - what if someone randommly sends money to pot
+///  - what if one of the players withdraws their affiliate share
+///    (we would have to scape every user account's state to adjust expectations)
+pub fn verify_round_state(round_state: &RoundState) -> ProgramResult {
+    let actual_money_in_pot = round_state.accum_sol_pot;
     let supposed_money_in_pot = round_state.accum_community_share
         + round_state.accum_airdrop_share
         + round_state.accum_next_round_share
         + round_state.accum_aff_share
         + round_state.accum_p3d_share
         + round_state.accum_f3d_share
-        + round_state.accum_prize_share;
-    msg!("{}, {}", actual_money_in_pot as u128, supposed_money_in_pot);
-    assert_eq!(actual_money_in_pot as u128, supposed_money_in_pot);
+        + round_state.still_in_play
+        + round_state.final_prize_share;
+    assert_eq!(actual_money_in_pot, supposed_money_in_pot);
     Ok(())
 }
 
@@ -64,4 +67,13 @@ pub fn is_zero(buf: &[u8]) -> bool {
     prefix.iter().all(|&x| x == 0)
         && suffix.iter().all(|&x| x == 0)
         && aligned.iter().all(|&x| x == 0)
+}
+
+pub fn round_ended(round_state: &RoundState) -> Result<bool, ProgramError> {
+    let clock = Clock::get()?;
+    msg!(
+        "round time left (s): {}",
+        round_state.end_time - clock.unix_timestamp
+    );
+    Ok(round_state.end_time < clock.unix_timestamp)
 }

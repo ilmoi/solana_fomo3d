@@ -17,15 +17,18 @@ pub struct GameState {
     pub version: u8,
 }
 
-pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
-pub const ROUND_INC_TIME: i64 = 30; //30s
+// pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
+pub const ROUND_INIT_TIME: i64 = 2; //todo temp
+
+// pub const ROUND_INC_TIME: i64 = 30; //30s
+pub const ROUND_INC_TIME: i64 = 2; //todo temp
 pub const ROUND_MAX_TIME: i64 = 24 * 60 * 60; //24h
 
 // --------------------------------------- fees & teams
 
 pub const FEE_SPLIT_SIZE: usize = 2;
 // when a key is purchased the fees are split between 1)next round, 2)f3d players, 3)p3d holders.
-// (1) can be deduced as 100 - (2)f3d - (3)p3d
+// (1) can be deduced as 86 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct FeeSplit {
     pub f3d: u8,
@@ -34,7 +37,7 @@ pub struct FeeSplit {
 
 pub const POT_SPLIT_SIZE: usize = 2;
 // when the round is over the pot is split between 1)next round, 2)f3d players, 3)p3d holders.
-// (1) can be deduced as 100 - (2)f3d - (3)p3d
+// (1) can be deduced as 50 - (2)f3d - (3)p3d
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PotSplit {
     pub f3d: u8,
@@ -72,7 +75,7 @@ pub struct SolByTeam {
 // --------------------------------------- round
 
 pub const ROUND_STATE_SIZE: usize =
-    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (9 * 16) + 8;
+    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (10 * 16) + 8;
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
     pub round_id: u64,
@@ -94,7 +97,8 @@ pub struct RoundState {
     pub accum_aff_share: u128, //sum of all affiliate shares paid out to users (used for checks & balances)
     pub accum_p3d_share: u128,
     pub accum_f3d_share: u128, //sum of all f3d shares paid out to users (used for checks & balances)
-    pub accum_prize_share: u128, //the final prize pot, still needs to be divided between winner & rest
+    pub still_in_play: u128,
+    pub final_prize_share: u128, //will be filled when round ends
     //airdrop
     pub airdrop_tracker: u64, //increment each time a qualified tx occurs
 }

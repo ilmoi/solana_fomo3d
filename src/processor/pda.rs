@@ -33,7 +33,7 @@ pub fn deserialize_game_state<'a>(
     let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
     let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
     let game_state_bump =
-        find_and_verify_pda(game_state_seed.as_bytes(), program_id, game_state_info)?;
+        verify_pda_matches(game_state_seed.as_bytes(), program_id, game_state_info)?;
     Ok((game_state, game_state_seed, game_state_bump))
 }
 
@@ -63,13 +63,13 @@ pub fn create_game_state<'a>(
 pub fn deserialize_round_state<'a>(
     round_state_info: &AccountInfo<'a>,
     round_id: u64,
-    game_version: u8,
+    version: u8,
     program_id: &Pubkey,
 ) -> Result<RoundState, ProgramError> {
-    let round_state: RoundState = RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
-    let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, game_version);
-    find_and_verify_pda(round_state_seed.as_bytes(), program_id, round_state_info)?;
-    Ok(round_state)
+    let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, version);
+    verify_pda_matches(round_state_seed.as_bytes(), program_id, round_state_info)?;
+    RoundState::try_from_slice(&round_state_info.data.borrow_mut())
+        .map_err(|_| SomeError::BadError.into())
 }
 
 /// Builds seed + verifies + creates pda
@@ -96,10 +96,78 @@ pub fn create_round_state<'a>(
 }
 
 /// Builds seed + verifies + deserializes pda
+pub fn deserialize_player_round_state<'a>(
+    player_round_state_info: &AccountInfo<'a>,
+    player_pk: &Pubkey,
+    round_id: u64,
+    version: u8,
+    program_id: &Pubkey,
+) -> Result<PlayerRoundState, ProgramError> {
+    let player_round_state_seed = format!(
+        "{}{}{}{}",
+        PLAYER_ROUND_STATE_SEED,      //2
+        &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
+        round_id,                     //8
+        version                       //1
+    );
+    verify_pda_matches(
+        player_round_state_seed.as_bytes(),
+        program_id,
+        player_round_state_info,
+    )?;
+    PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())
+        .map_err(|_| SomeError::BadError.into())
+}
+
+/// Builds seed + verifies + deserializes/creates pda if missing
+pub fn deserialize_or_create_player_round_state<'a>(
+    player_round_state_info: &AccountInfo<'a>,
+    funder_info: &AccountInfo<'a>,
+    system_program_info: &AccountInfo<'a>,
+    player_pk: &Pubkey,
+    round_id: u64,
+    version: u8,
+    program_id: &Pubkey,
+) -> Result<PlayerRoundState, ProgramError> {
+    if account_exists(player_round_state_info) {
+        deserialize_player_round_state(
+            player_round_state_info,
+            player_pk,
+            round_id,
+            version,
+            program_id,
+        )
+    } else {
+        let player_round_state_seed = format!(
+            "{}{}{}{}",
+            PLAYER_ROUND_STATE_SEED,      //2
+            &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
+            round_id,                     //8
+            version                       //1
+        );
+        create_pda_with_space(
+            player_round_state_seed.as_bytes(),
+            player_round_state_info,
+            PLAYER_ROUND_STATE_SIZE,
+            program_id,
+            funder_info,
+            system_program_info,
+            program_id,
+        )?;
+        let mut player_round_state: PlayerRoundState =
+            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+        //initially set the player's public key and round id
+        player_round_state.player_pk = *player_pk;
+        player_round_state.round_id = round_id;
+        Ok(player_round_state)
+    }
+}
+
+/// Builds seed + verifies + deserializes pda
 pub fn deserialize_pot<'a>(
     pot_info: &AccountInfo<'a>,
     round_id: u64,
-    game_version: u8,
+    version: u8,
     program_id: &Pubkey,
 ) -> Result<Account, ProgramError> {
     // todo this check will fail coz owner = token_program. I wonder if there is another check that I need to do in place
@@ -109,8 +177,8 @@ pub fn deserialize_pot<'a>(
     // }
 
     let pot = Account::unpack(&pot_info.data.borrow_mut())?;
-    let pot_seed = format!("{}{}{}", POT_SEED, round_id, game_version);
-    find_and_verify_pda(pot_seed.as_bytes(), program_id, pot_info)?;
+    let pot_seed = format!("{}{}{}", POT_SEED, round_id, version);
+    verify_pda_matches(pot_seed.as_bytes(), program_id, pot_info)?;
     Ok(pot)
 }
 
@@ -148,57 +216,6 @@ pub fn create_pot<'a>(
     Account::unpack(&pot_info.data.borrow_mut()).map_err(|_| SomeError::BadError.into())
 }
 
-/// Builds seed + verifies + deserializes/creates pda if missing
-pub fn deserialize_or_create_player_round_state<'a>(
-    player_round_state_info: &AccountInfo<'a>,
-    funder_info: &AccountInfo<'a>,
-    system_program_info: &AccountInfo<'a>,
-    player_pk: &Pubkey,
-    round_id: u64,
-    version: u8,
-    program_id: &Pubkey,
-) -> Result<PlayerRoundState, ProgramError> {
-    let player_round_state_seed = format!(
-        "{}{}{}{}",
-        PLAYER_ROUND_STATE_SEED,      //2
-        &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
-        round_id,                     //8
-        version                       //1
-    );
-
-    find_and_verify_pda(
-        player_round_state_seed.as_bytes(),
-        program_id,
-        player_round_state_info,
-    )?;
-
-    if !account_exists(player_round_state_info) {
-        create_pda_with_space(
-            player_round_state_seed.as_bytes(),
-            player_round_state_info,
-            PLAYER_ROUND_STATE_SIZE,
-            program_id,
-            funder_info,
-            system_program_info,
-            program_id,
-        )?;
-        let mut player_round_state: PlayerRoundState =
-            PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
-        //initially set the player's public key and round id
-        player_round_state.player_pk = *player_pk;
-        player_round_state.round_id = round_id;
-        Ok(player_round_state)
-    } else {
-        msg!(
-            "account for player {} for round {} already exists!",
-            player_pk,
-            round_id
-        );
-        PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())
-            .map_err(|_| SomeError::BadError.into())
-    }
-}
-
 // --------------------------------------- private
 
 const POT_SEED: &str = "pot";
@@ -215,7 +232,7 @@ fn create_pda_with_space<'a>(
     system_program_info: &AccountInfo<'a>,
     program_id: &Pubkey,
 ) -> Result<u8, ProgramError> {
-    let bump_seed = find_and_verify_pda(pda_seed, program_id, pda_info)?;
+    let bump_seed = verify_pda_matches(pda_seed, program_id, pda_info)?;
     let full_seeds: &[&[_]] = &[pda_seed, &[bump_seed]];
 
     //create a PDA and allocate space inside of it at the same time
@@ -243,7 +260,7 @@ fn create_pda_with_space<'a>(
     Ok(bump_seed)
 }
 
-fn find_and_verify_pda(
+fn verify_pda_matches(
     pda_seed: &[u8],
     program_id: &Pubkey,
     pda_info: &AccountInfo,

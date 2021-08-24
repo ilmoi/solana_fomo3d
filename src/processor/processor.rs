@@ -9,6 +9,9 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
+use crate::processor::pda::deserialize_player_round_state;
+use crate::processor::util::round_ended;
+use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::SomeError,
     instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams},
@@ -63,10 +66,105 @@ impl Processor {
         }
     }
 
-    pub fn process_end_round(_program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let _game_state_info = next_account_info(account_info_iter)?;
-        let _round_state_info = next_account_info(account_info_iter)?;
+        let game_state_info = next_account_info(account_info_iter)?;
+        let round_state_info = next_account_info(account_info_iter)?;
+        let winner_state_info = next_account_info(account_info_iter)?;
+
+        let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        let mut round_state = deserialize_round_state(
+            round_state_info,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
+
+        if !round_ended(&round_state)? {
+            msg!("round is still on-going");
+            return Err(SomeError::BadError.into());
+        }
+
+        let mut player_round_state = deserialize_player_round_state(
+            winner_state_info,
+            &round_state.lead_player_pk,
+            game_state.round_id,
+            game_state.version,
+            program_id,
+        )?;
+
+        // --------------------------------------- calc shares
+        let to_be_divided = round_state.still_in_play;
+
+        let pot_split = match round_state.lead_player_team {
+            Team::Whale => WHALE_POT_SPLIT,
+            Team::Bear => BEAR_POT_SPLIT,
+            Team::Snek => SNEK_POT_SPLIT,
+            Team::Bull => BULL_POT_SPLIT,
+        };
+        let next_round_percent = 50
+            .try_sub(pot_split.p3d as u128)?
+            .try_sub(pot_split.f3d as u128)?;
+
+        //2% to community
+        let community_share = to_be_divided.try_floor_div(50)?;
+
+        //p3d/f3d/next round according to team (always adds up to 50%)
+        let p3d_share = to_be_divided
+            .try_mul(pot_split.p3d as u128)?
+            .try_floor_div(100)?;
+        let f3d_share = to_be_divided
+            .try_mul(pot_split.f3d as u128)?
+            .try_floor_div(100)?;
+        let next_round_share = to_be_divided
+            .try_mul(next_round_percent)?
+            .try_floor_div(100)?;
+
+        //remaining 48% + dust to winner
+        let grand_prize = to_be_divided
+            .try_sub(community_share)?
+            .try_sub(f3d_share)?
+            .try_sub(p3d_share)?
+            .try_sub(next_round_share)?;
+        assert!(grand_prize >= to_be_divided.try_mul(48)?.try_floor_div(100)?);
+
+        msg!("{}", to_be_divided); //todo temp
+        msg!("{}", community_share);
+        msg!("{}", f3d_share);
+        msg!("{}", p3d_share);
+        msg!("{}", next_round_share);
+
+        // --------------------------------------- assign funds to winner
+        player_round_state.accum_winnings += grand_prize;
+        player_round_state.serialize(&mut *winner_state_info.data.borrow_mut())?;
+
+        // --------------------------------------- update round state
+        round_state.ended = true;
+        //update shares
+        round_state.accum_community_share += community_share;
+        round_state.accum_next_round_share += next_round_share;
+        round_state.accum_p3d_share += p3d_share;
+        round_state.accum_f3d_share += f3d_share;
+        round_state.final_prize_share += grand_prize;
+        round_state.still_in_play = 0;
+        round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
+
+        verify_round_state(&round_state)?;
+
+        Ok(())
+    }
+
+    pub fn process_p3d_withdrawal(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+
+        Ok(())
+    }
+
+    pub fn process_community_withdrawal(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
 
         Ok(())
     }
@@ -113,13 +211,12 @@ impl Processor {
         }
 
         // --------------------------------------- calc withdrawal amounts
-        let winnings_to_withdraw = if round_state.ended {
-            player_round_state
-                .accum_winnings
-                .try_sub(player_round_state.withdrawn_winnings)?
-        } else {
-            0
-        };
+        // No, you don't need to wait for round end to withdraw winnings.
+        // Grand prize will not have been added yet,
+        // and airdrop lottery winnings should be available to user to withdraw.
+        let winnings_to_withdraw = player_round_state
+            .accum_winnings
+            .try_sub(player_round_state.withdrawn_winnings)?;
         let aff_to_withdraw = player_round_state
             .accum_aff
             .try_sub(player_round_state.withdrawn_aff)?;
@@ -127,14 +224,19 @@ impl Processor {
             player_round_state.accum_keys,
             round_state.accum_keys,
             round_state.accum_f3d_share,
-        )?;
+        )?
+        .try_sub(player_round_state.withdrawn_f3d)?;
         let total_to_withdraw = winnings_to_withdraw
             .try_add(aff_to_withdraw)?
             .try_add(f3d_to_withdraw)?;
         if total_to_withdraw == 0 {
-            //should say something like "too little"
-            return Err(SomeError::BadError.into());
+            return Ok(());
         }
+
+        msg!("{}", winnings_to_withdraw); //todo temp
+        msg!("{}", aff_to_withdraw);
+        msg!("{}", f3d_to_withdraw);
+        msg!("{}", total_to_withdraw);
 
         // --------------------------------------- transfer tokens
         spl_token_transfer(TokenTransferParams {
@@ -184,6 +286,10 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
+        //ensure the round hasn't ended
+        if round_ended(&round_state)? {
+            return Err(SomeError::BadError.into());
+        }
         deserialize_pot(
             pot_info,
             game_state.round_id,
@@ -204,7 +310,7 @@ impl Processor {
             return Err(SomeError::BadError.into());
         }
 
-        // --------------------------------------- calc & prep variables
+        // --------------------------------------- calc variables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
         sol_to_be_added = if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
             && player_round_state.accum_sol_added + sol_to_be_added > LAMPORTS_PER_SOL as u128
@@ -239,6 +345,9 @@ impl Processor {
                 Team::Snek
             }
         };
+        let pot_percent = 86
+            .try_sub(fee_split.f3d as u128)?
+            .try_sub(fee_split.p3d as u128)?;
 
         // Ensure enough lamports are sent to buy at least 1 whole key.
         // In the original game on Ethereum it was possible to purchase <1 key.
@@ -262,7 +371,7 @@ impl Processor {
             authority_signer_seeds: &[],
         })?;
 
-        // --------------------------------------- part take in airdrop lottery
+        // --------------------------------------- play in airdrop lottery
         //if they deposited > 0.1 sol, they're eligible for airdrop
         if sol_to_be_added > (LAMPORTS_PER_SOL as u128).try_floor_div(10)? {
             let clock = Clock::get()?;
@@ -293,7 +402,7 @@ impl Processor {
             }
         }
 
-        // --------------------------------------- split the fee among stakeholders
+        // --------------------------------------- calc shares
         //2% to community
         //todo impl mechanism where only community member can withdraw
         let community_share = sol_to_be_added.try_floor_div(50)?;
@@ -302,7 +411,7 @@ impl Processor {
         //1% to next round's pot
         let next_round_share = sol_to_be_added.try_floor_div(100)?;
         //10% to affiliate
-        let affiliate_share = sol_to_be_added.try_floor_div(10)?;
+        let mut affiliate_share = sol_to_be_added.try_floor_div(10)?;
 
         //todo impl mechanism where only p3d member can withdraw
         let mut p3d_share = 0;
@@ -322,9 +431,9 @@ impl Processor {
                 program_id,
             )?;
             affiliate_round_state.accum_aff += affiliate_share;
-            round_state.accum_aff_share += affiliate_share;
         } else {
             p3d_share += affiliate_share;
+            affiliate_share = 0;
         }
 
         p3d_share += sol_to_be_added
@@ -334,20 +443,30 @@ impl Processor {
             .try_mul(fee_split.f3d as u128)?
             .try_floor_div(100)?;
 
-        let prize_share = sol_to_be_added
+        let still_in_play = sol_to_be_added
             .try_sub(community_share)?
             .try_sub(airdrop_share)?
             .try_sub(next_round_share)?
             .try_sub(affiliate_share)?
             .try_sub(p3d_share)?
             .try_sub(f3d_share)?;
+        assert!(still_in_play >= sol_to_be_added.try_mul(pot_percent)?.try_floor_div(100)?);
+
+        msg!("{}", community_share); //todo temp
+        msg!("{}", airdrop_share);
+        msg!("{}", next_round_share);
+        msg!("{}", affiliate_share);
+        msg!("{}", p3d_share);
+        msg!("{}", f3d_share);
+        msg!("{}", still_in_play);
 
         // --------------------------------------- serialize round state
         //update leader
         round_state.lead_player_pk = *player_pk;
         round_state.lead_player_team = player_team;
-        //update timer - todo needs to be more sophisticated
-        round_state.end_time += ROUND_INC_TIME;
+        //update timer
+        round_state.end_time =
+            (round_state.end_time + ROUND_INC_TIME).min(round_state.end_time + ROUND_MAX_TIME);
         //update totals
         round_state.accum_keys += new_keys;
         round_state.accum_sol_pot += sol_to_be_added;
@@ -358,10 +477,10 @@ impl Processor {
         round_state.accum_aff_share += affiliate_share;
         round_state.accum_p3d_share += p3d_share;
         round_state.accum_f3d_share += f3d_share;
-        round_state.accum_prize_share += prize_share;
+        round_state.still_in_play += still_in_play;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
-        verify_round_state(&round_state, pot_info)?;
+        verify_round_state(&round_state)?;
 
         // --------------------------------------- serialize player-round state
         //update totals
@@ -424,7 +543,6 @@ impl Processor {
         round_state.ended = false;
         round_state.accum_sol_pot = pot.amount as u128;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
-
         game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
         Ok(())

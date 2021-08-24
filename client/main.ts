@@ -17,10 +17,10 @@ let connection: Connection;
 const OUR_PROGRAM_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
 const ownerKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([208, 175, 150, 242, 88, 34, 108, 88, 177, 16, 168, 75, 115, 181, 199, 242, 120, 4, 78, 75, 19, 227, 13, 215, 184, 108, 226, 53, 111, 149, 179, 84, 137, 121, 79, 1, 160, 223, 124, 241, 202, 203, 220, 237, 50, 242, 57, 158, 226, 207, 203, 188, 43, 28, 70, 110, 214, 234, 251, 15, 249, 157, 62, 80]));
 const aliceKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([201, 101, 147, 128, 138, 189, 70, 190, 202, 49, 28, 26, 32, 21, 104, 185, 191, 41, 20, 171, 3, 144, 4, 26, 169, 73, 180, 171, 71, 22, 48, 135, 231, 91, 179, 215, 3, 117, 187, 183, 96, 74, 154, 155, 197, 243, 114, 104, 20, 123, 105, 47, 181, 123, 171, 133, 73, 181, 102, 41, 236, 78, 210, 176]));
+let aliceRoundState: PublicKey;
 
 let gameState: PublicKey;
 let roundState: PublicKey;
-let playerRoundState: PublicKey;
 
 let wSolMint: Token;
 let wSolAliceAcc: PublicKey;
@@ -172,11 +172,11 @@ async function purchaseKeys() {
     console.log('// --------------------------------------- purchase keys')
     let bump;
     //player-round state pda
-    [playerRoundState, bump] = await PublicKey.findProgramAddress(
+    [aliceRoundState, bump] = await PublicKey.findProgramAddress(
         [Buffer.from(`pr${aliceKp.publicKey.toBase58().substring(0,16)}${round}${version}`)],
         OUR_PROGRAM_ID,
     )
-    console.log('player-round state pda is:', playerRoundState.toBase58());
+    console.log('player-round state pda is:', aliceRoundState.toBase58());
 
     //init round ix
     const data = Buffer.from(Uint8Array.of(2,
@@ -188,7 +188,7 @@ async function purchaseKeys() {
             {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
             {pubkey: gameState, isSigner: false, isWritable: true},
             {pubkey: roundState, isSigner: false, isWritable: true},
-            {pubkey: playerRoundState, isSigner: false, isWritable: true},
+            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
             {pubkey: wSolPot, isSigner: false, isWritable: true},
             {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
             {
@@ -218,7 +218,7 @@ async function withdrawSol() {
             {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
             {pubkey: gameState, isSigner: false, isWritable: false},
             {pubkey: roundState, isSigner: false, isWritable: false},
-            {pubkey: playerRoundState, isSigner: false, isWritable: true},
+            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
             {pubkey: wSolPot, isSigner: false, isWritable: true},
             {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
             {
@@ -239,6 +239,21 @@ async function withdrawSol() {
     console.log('post withdrawal, alice has', aliceAmount as any / LAMPORTS_PER_SOL);
 }
 
+async function endRound() {
+    console.log('// --------------------------------------- end round')
+    const data = Buffer.from(Uint8Array.of(4));
+    const endRoundIx = new TransactionInstruction({
+        keys: [
+            {pubkey: gameState, isSigner: false, isWritable: false},
+            {pubkey: roundState, isSigner: false, isWritable: true},
+            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
+        ],
+        programId: OUR_PROGRAM_ID,
+        data: data,
+    });
+    await prepareAndSendTx([endRoundIx], [ownerKp]);
+}
+
 // ============================================================================= play
 
 async function play() {
@@ -248,6 +263,11 @@ async function play() {
     await initRound();
     await purchaseKeys();
     await withdrawSol();
+    await setTimeout(async () => {
+        await endRound();
+        await withdrawSol();
+    }, 5000);
+
 }
 
 play()
