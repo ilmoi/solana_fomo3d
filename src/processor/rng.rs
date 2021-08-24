@@ -1,10 +1,8 @@
-use crate::error::SomeError;
+use std::convert::TryInto;
+
+use solana_program::{clock::Clock, program_error::ProgramError, pubkey::Pubkey};
+
 use crate::math::common::TryRem;
-use solana_program::clock::Clock;
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::Pubkey;
-use solana_program::sysvar::Sysvar;
-use std::convert::{TryFrom, TryInto};
 
 /// Generates a pseudo-random number in the [0,1000) range.
 /// (!) NOT A REAL RANDOM NUMBER GENERATOR
@@ -33,14 +31,15 @@ pub fn pseudo_rng(player_pk: &Pubkey, clock: &Clock) -> Result<u128, ProgramErro
 
 #[cfg(test)]
 mod tests {
+    use solana_program_test::*;
+
     use super::*;
     use crate::entrypoint::process_instruction;
-    use solana_program_test::*;
 
     #[tokio::test]
     async fn test_pseudo_rng() {
         let program_id = Pubkey::new_unique();
-        let (mut banks_client, payer, recent_blockhash) = ProgramTest::new(
+        let (mut banks_client, _payer, _recent_blockhash) = ProgramTest::new(
             "bpf_program_template",
             program_id,
             processor!(process_instruction),

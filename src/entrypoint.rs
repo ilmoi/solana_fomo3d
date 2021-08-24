@@ -1,10 +1,9 @@
-use crate::error::SomeError;
-use crate::processor;
-use solana_program::account_info::AccountInfo;
-use solana_program::entrypoint;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::program_error::PrintProgramError;
-use solana_program::pubkey::Pubkey;
+use solana_program::{
+    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult,
+    program_error::PrintProgramError, pubkey::Pubkey,
+};
+
+use crate::{error::SomeError, processor};
 
 entrypoint!(process_instruction);
 pub fn process_instruction(

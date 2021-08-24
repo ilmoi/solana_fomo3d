@@ -1,9 +1,12 @@
+use solana_program::{
+    account_info::AccountInfo,
+    entrypoint::ProgramResult,
+    instruction::Instruction,
+    program::{invoke, invoke_signed},
+    pubkey::Pubkey,
+};
+
 use crate::error::SomeError;
-use solana_program::account_info::AccountInfo;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::instruction::Instruction;
-use solana_program::program::{invoke, invoke_signed};
-use solana_program::pubkey::Pubkey;
 
 /// Issue a spl_token `InitializeAccount` instruction.
 #[inline(always)]

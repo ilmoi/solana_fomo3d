@@ -1,7 +1,9 @@
-use crate::error::SomeError;
-use crate::math::common::{TryAdd, TryDiv, TryMul, TryPow, TrySqrt, TrySub};
-use solana_program::native_token::LAMPORTS_PER_SOL;
-use solana_program::{msg, program_error::ProgramError};
+use solana_program::{msg, native_token::LAMPORTS_PER_SOL, program_error::ProgramError};
+
+use crate::{
+    error::SomeError,
+    math::common::{TryAdd, TryDiv, TryMul, TryPow, TrySqrt, TrySub},
+};
 
 pub fn keys_received(current_sol: u128, new_sol: u128) -> Result<u128, ProgramError> {
     if current_sol == 0 && new_sol == 0 {

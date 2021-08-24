@@ -1,38 +1,33 @@
-use std::ops::Deref;
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::account_info::{next_account_info, AccountInfo};
-use solana_program::clock::Clock;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::instruction::Instruction;
-use solana_program::msg;
-use solana_program::native_token::LAMPORTS_PER_SOL;
-use solana_program::program::{invoke, invoke_signed};
-use solana_program::program_error::ProgramError;
-use solana_program::program_pack::Pack;
-use solana_program::pubkey::Pubkey;
-use solana_program::system_instruction::{create_account, transfer, transfer_with_seed};
-use solana_program::sysvar::rent::Rent;
-use solana_program::sysvar::Sysvar;
-use spl_token::state::Account;
+use solana_program::{
+    account_info::{next_account_info, AccountInfo},
+    clock::Clock,
+    entrypoint::ProgramResult,
+    msg,
+    native_token::LAMPORTS_PER_SOL,
+    pubkey::Pubkey,
+    sysvar::Sysvar,
+};
 
-use crate::error::SomeError;
-use crate::instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams};
-use crate::math::common::{TryAdd, TryCast, TryDiv, TryMul, TrySub};
-use crate::math::curve::keys_received;
-use crate::processor::pda::{
-    create_game_state, create_pot, create_round_state, deserialize_game_state,
-    deserialize_or_create_player_round_state, deserialize_pot, deserialize_round_state,
-};
-use crate::processor::rng::pseudo_rng;
-use crate::processor::spl_token::{
-    spl_token_init_account, spl_token_transfer, TokenInitializeAccountParams, TokenTransferParams,
-};
-use crate::processor::util::{airdrop_winner, calculate_player_f3d_share, verify_round_state};
-use crate::state::{
-    GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT,
-    GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME,
-    ROUND_STATE_SIZE, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+use crate::{
+    error::SomeError,
+    instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams},
+    math::{
+        common::{TryAdd, TryCast, TryDiv, TryMul, TrySub},
+        curve::keys_received,
+    },
+    processor::{
+        pda::{
+            create_game_state, create_pot, create_round_state, deserialize_game_state,
+            deserialize_or_create_player_round_state, deserialize_pot, deserialize_round_state,
+        },
+        spl_token::{spl_token_transfer, TokenTransferParams},
+        util::{airdrop_winner, calculate_player_f3d_share, verify_round_state},
+    },
+    state::{
+        Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, ROUND_INC_TIME, ROUND_INIT_TIME,
+        ROUND_MAX_TIME, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+    },
 };
 
 pub struct Processor {}
@@ -68,10 +63,10 @@ impl Processor {
         }
     }
 
-    pub fn process_end_round(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    pub fn process_end_round(_program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
-        let game_state_info = next_account_info(account_info_iter)?;
-        let round_state_info = next_account_info(account_info_iter)?;
+        let _game_state_info = next_account_info(account_info_iter)?;
+        let _round_state_info = next_account_info(account_info_iter)?;
 
         Ok(())
     }
@@ -221,7 +216,7 @@ impl Processor {
             sol_to_be_added
         };
 
-        let mut fee_split;
+        let fee_split;
         let player_team = match team {
             0 => {
                 round_state.accum_sol_by_team.whale += sol_to_be_added;
@@ -366,7 +361,7 @@ impl Processor {
         round_state.accum_prize_share += prize_share;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
-        verify_round_state(&round_state, pot_info);
+        verify_round_state(&round_state, pot_info)?;
 
         // --------------------------------------- serialize player-round state
         //update totals

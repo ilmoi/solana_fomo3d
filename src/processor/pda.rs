@@ -1,30 +1,27 @@
-use crate::error::SomeError;
-use crate::instruction::{GameInstruction, PurchaseKeysParams, WithdrawSolParams};
-use crate::math::common::{TryAdd, TryCast, TryDiv, TryMul, TrySub};
-use crate::math::curve::keys_received;
-use crate::processor::spl_token::{spl_token_init_account, TokenInitializeAccountParams};
-use crate::processor::util::account_exists;
-use crate::state::{
-    GameState, PlayerRoundState, RoundState, Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT,
-    GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE, ROUND_INC_TIME, ROUND_INIT_TIME, ROUND_MAX_TIME,
-    ROUND_STATE_SIZE, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+use borsh::BorshDeserialize;
+use solana_program::{
+    account_info::AccountInfo,
+    msg,
+    program::invoke_signed,
+    program_error::ProgramError,
+    program_pack::Pack,
+    pubkey::Pubkey,
+    system_instruction::create_account,
+    sysvar::{rent::Rent, Sysvar},
 };
-use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::account_info::{next_account_info, AccountInfo};
-use solana_program::clock::Clock;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::instruction::Instruction;
-use solana_program::msg;
-use solana_program::native_token::LAMPORTS_PER_SOL;
-use solana_program::program::{invoke, invoke_signed};
-use solana_program::program_error::ProgramError;
-use solana_program::program_pack::Pack;
-use solana_program::pubkey::Pubkey;
-use solana_program::system_instruction::{create_account, transfer, transfer_with_seed};
-use solana_program::sysvar::rent::Rent;
-use solana_program::sysvar::Sysvar;
 use spl_token::state::Account;
-use std::ops::Deref;
+
+use crate::{
+    error::SomeError,
+    processor::{
+        spl_token::{spl_token_init_account, TokenInitializeAccountParams},
+        util::account_exists,
+    },
+    state::{
+        GameState, PlayerRoundState, RoundState, GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE,
+        ROUND_STATE_SIZE,
+    },
+};
 
 // --------------------------------------- public
 

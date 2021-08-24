@@ -481,8 +481,9 @@ impl PreciseNumber {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     fn check_pow_approximation(base: U256, exponent: U256, expected: U256) {
         let precision = U256::from(5_000_000); // correct to at least 3 decimal places

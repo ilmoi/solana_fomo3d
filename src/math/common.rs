@@ -1,8 +1,9 @@
-use crate::error::SomeError;
-use crate::math::precise::{CheckedCeilDiv, PreciseNumber};
+use std::convert::TryFrom;
+
 use solana_program::program_error::ProgramError;
 use spl_math::approximations::sqrt;
-use std::convert::TryFrom;
+
+use crate::{error::SomeError, math::precise::CheckedCeilDiv};
 
 pub trait TrySub: Sized {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError>;

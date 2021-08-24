@@ -1,13 +1,14 @@
-use crate::math::common::{TryDiv, TryMul};
-use crate::processor::rng::pseudo_rng;
-use crate::state::RoundState;
-use solana_program::account_info::AccountInfo;
-use solana_program::clock::Clock;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::program_error::ProgramError;
-use solana_program::program_pack::Pack;
-use solana_program::{msg, pubkey::Pubkey};
+use solana_program::{
+    account_info::AccountInfo, clock::Clock, entrypoint::ProgramResult, msg,
+    program_error::ProgramError, program_pack::Pack, pubkey::Pubkey,
+};
 use spl_token::state::Account;
+
+use crate::{
+    math::common::{TryDiv, TryMul},
+    processor::rng::pseudo_rng,
+    state::RoundState,
+};
 
 /// The original math for this is unnecessary convoluted and we decided to ignore it.
 /// Ultimately this comes down to a simple equation: (player's keys / total keys) * total f3d earnings.
