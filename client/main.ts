@@ -14,7 +14,7 @@ import {gameSchema, GameState} from "./layout";
 
 // ============================================================================= globals & consts
 let connection: Connection;
-const OUR_PROGRAM_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
+const FOMO_PROG_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
 const ownerKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([208, 175, 150, 242, 88, 34, 108, 88, 177, 16, 168, 75, 115, 181, 199, 242, 120, 4, 78, 75, 19, 227, 13, 215, 184, 108, 226, 53, 111, 149, 179, 84, 137, 121, 79, 1, 160, 223, 124, 241, 202, 203, 220, 237, 50, 242, 57, 158, 226, 207, 203, 188, 43, 28, 70, 110, 214, 234, 251, 15, 249, 157, 62, 80]));
 const aliceKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([201, 101, 147, 128, 138, 189, 70, 190, 202, 49, 28, 26, 32, 21, 104, 185, 191, 41, 20, 171, 3, 144, 4, 26, 169, 73, 180, 171, 71, 22, 48, 135, 231, 91, 179, 215, 3, 117, 187, 183, 96, 74, 154, 155, 197, 243, 114, 104, 20, 123, 105, 47, 181, 123, 171, 133, 73, 181, 102, 41, 236, 78, 210, 176]));
 const thirdPartyKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([177, 217, 193, 155, 63, 150, 164, 184, 81, 82, 121, 165, 202, 87, 86, 237, 218, 226, 212, 201, 167, 170, 149, 183, 59, 43, 155, 112, 189, 239, 231, 110, 162, 218, 184, 20, 108, 2, 92, 114, 203, 184, 223, 69, 137, 206, 102, 71, 162, 0, 127, 63, 170, 96, 137, 108, 228, 31, 181, 113, 57, 189, 30, 76]));
@@ -62,7 +62,7 @@ async function prepareAndSendTx(instructions: TransactionInstruction[], signers:
 
 async function generateCreateAccIx(newAccountPubkey: PublicKey, space: number): Promise<TransactionInstruction> {
     return SystemProgram.createAccount({
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         fromPubkey: ownerKp.publicKey,
         newAccountPubkey,
         space,
@@ -103,7 +103,7 @@ async function initGame() {
     let stateBumpSeed;
     [gameState, stateBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from(`game${version}`)],
-        OUR_PROGRAM_ID,
+        FOMO_PROG_ID,
     )
     console.log('game state pda is:', gameState.toBase58());
 
@@ -128,7 +128,7 @@ async function initGame() {
                 isWritable: false
             },
         ],
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         data,
     });
     await prepareAndSendTx([initIx], [ownerKp]);
@@ -141,14 +141,14 @@ async function initRound(second = false) {
     //round state pda
     [roundState, roundBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from(`round${round}${version}`)],
-        OUR_PROGRAM_ID,
+        FOMO_PROG_ID,
     )
     console.log('round state pda is:', roundState.toBase58());
 
     //pot pda
     [wSolPot, potBumpSeed] = await PublicKey.findProgramAddress(
         [Buffer.from(`pot${round}${version}`)],
-        OUR_PROGRAM_ID,
+        FOMO_PROG_ID,
     )
     console.log('round pot pda is:', wSolPot.toBase58());
 
@@ -169,12 +169,12 @@ async function initRound(second = false) {
     ];
     if (second) {
         let [roundState2, roundBumpSeed2] = await PublicKey.findProgramAddress(
-            [Buffer.from(`round${round-1}${version}`)],
-            OUR_PROGRAM_ID,
+            [Buffer.from(`round${round - 1}${version}`)],
+            FOMO_PROG_ID,
         )
         let [wSolPot2, potBumpSeed2] = await PublicKey.findProgramAddress(
-            [Buffer.from(`pot${round-1}${version}`)],
-            OUR_PROGRAM_ID,
+            [Buffer.from(`pot${round - 1}${version}`)],
+            FOMO_PROG_ID,
         )
         keys.push({pubkey: roundState2, isSigner: false, isWritable: true});
         keys.push({pubkey: wSolPot2, isSigner: false, isWritable: true});
@@ -184,7 +184,7 @@ async function initRound(second = false) {
     const data = Buffer.from(Uint8Array.of(1));
     const initRoundIx = new TransactionInstruction({
         keys,
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         data,
     });
     await prepareAndSendTx([initRoundIx], [ownerKp]);
@@ -194,37 +194,49 @@ async function initRound(second = false) {
     console.log('round pot has', potAmount as any / LAMPORTS_PER_SOL);
 }
 
-async function purchaseKeys() {
+async function purchaseKeys(add_new_affiliate = false) {
     console.log('// --------------------------------------- purchase keys')
     let bump;
     //player-round state pda
     [aliceRoundState, bump] = await PublicKey.findProgramAddress(
         [Buffer.from(`pr${aliceKp.publicKey.toBase58().substring(0, 16)}${round}${version}`)],
-        OUR_PROGRAM_ID,
+        FOMO_PROG_ID,
     )
     console.log('player-round state pda is:', aliceRoundState.toBase58());
 
+    //keys
+    let keys = [
+        {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
+        {pubkey: gameState, isSigner: false, isWritable: true},
+        {pubkey: roundState, isSigner: false, isWritable: true},
+        {pubkey: aliceRoundState, isSigner: false, isWritable: true},
+        {pubkey: wSolPot, isSigner: false, isWritable: true},
+        {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
+        {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false
+        },
+        {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
+    ];
+    if (add_new_affiliate) {
+        let newAffPk = new PublicKey("59NC7XLBzG5knsnu51P9WDVtywvW64PnasV2piHepw13");
+        let [newAffRoundState, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(`pr${newAffPk.toBase58().substring(0, 16)}${round}${version}`)],
+        FOMO_PROG_ID,
+    )
+        keys.push({pubkey: newAffRoundState, isSigner: false, isWritable: true})
+        keys.push({pubkey: newAffPk, isSigner: false, isWritable: false})
+    }
+
     //init round ix
     const data = Buffer.from(Uint8Array.of(2,
-        ...new BN(LAMPORTS_PER_SOL).toArray('le', 16), //1 sol
+        ...new BN(LAMPORTS_PER_SOL/2).toArray('le', 16), //1 sol
         ...new BN(1).toArray('le', 1), //team bear
     ));
     const purchaseKeysIx = new TransactionInstruction({
-        keys: [
-            {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
-            {pubkey: gameState, isSigner: false, isWritable: true},
-            {pubkey: roundState, isSigner: false, isWritable: true},
-            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
-            {pubkey: wSolPot, isSigner: false, isWritable: true},
-            {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
-            {
-                pubkey: SystemProgram.programId,
-                isSigner: false,
-                isWritable: false
-            },
-            {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
-        ],
-        programId: OUR_PROGRAM_ID,
+        keys,
+        programId: FOMO_PROG_ID,
         data,
     });
     await prepareAndSendTx([purchaseKeysIx], [aliceKp]);
@@ -254,7 +266,7 @@ async function withdrawSol() {
             },
             {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
         ],
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         data: data,
     });
     await prepareAndSendTx([withdrawSolIx], [aliceKp]);
@@ -274,7 +286,7 @@ async function endRound() {
             {pubkey: roundState, isSigner: false, isWritable: true},
             {pubkey: aliceRoundState, isSigner: false, isWritable: true},
         ],
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         data: data,
     });
     await prepareAndSendTx([endRoundIx], [ownerKp]);
@@ -292,7 +304,7 @@ async function withdrawCom() {
             {pubkey: thirdPartyKp.publicKey, isSigner: true, isWritable: false},
             {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
         ],
-        programId: OUR_PROGRAM_ID,
+        programId: FOMO_PROG_ID,
         data: data,
     });
     await prepareAndSendTx([withdrawComIx], [thirdPartyKp]);
@@ -311,14 +323,15 @@ async function play() {
     await initGame();
     await initRound();
     await purchaseKeys();
-    await withdrawSol();
+    // await purchaseKeys(true);
+    // await withdrawSol();
     // await setTimeout(async () => {
     //     await endRound();
     //     await withdrawSol();
     // }, 5000);
-    await withdrawCom();
-    round = 2;
-    await initRound(true);
+    // await withdrawCom();
+    // round = 2;
+    // await initRound(true);
 
 }
 

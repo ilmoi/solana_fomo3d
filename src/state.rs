@@ -134,7 +134,7 @@ pub struct PlayerRoundState {
 }
 
 impl PlayerRoundState {
-    pub fn has_affiliate(&self) -> bool {
+    pub fn has_affiliate_listed(&self) -> bool {
         !is_zero(&self.last_affiliate_pk.to_bytes())
     }
 }
@@ -149,4 +149,6 @@ impl PlayerRoundState {
 //todo do I need an is_initialized for each of these?
 // - eg lending has a cool fn assert_initialized
 
-//todo math - should I be using u64 or something else for all the wSol operations?
+//todo clean up in the end
+// - comments
+// - msg!()

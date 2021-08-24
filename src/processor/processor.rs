@@ -135,9 +135,6 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
 
-        //todo need some sort of check that the previous round has ended to start a new round
-        //todo also some sort of check on who can start the round
-
         let (mut game_state, game_state_seed, game_state_bump) =
             deserialize_game_state(game_state_info, program_id)?;
         let previous_round_id = game_state.round_id;
@@ -183,10 +180,9 @@ impl Processor {
                 program_id,
             )?;
             //previous round must have ended, otherwise no-go
-            //todo temp
-            // if !previous_round_state.ended {
-            //     return Err(SomeError::BadError.into());
-            // }
+            if !previous_round_state.ended {
+                return Err(SomeError::BadError.into());
+            }
             //move tokens from previous round to this one
             let move_over_amount = previous_round_state
                 .accum_next_round_share
@@ -225,7 +221,7 @@ impl Processor {
         accounts: &[AccountInfo],
         purchase_params: PurchaseKeysParams,
     ) -> ProgramResult {
-        let account_info_iter = &mut accounts.iter();
+        let account_info_iter = &mut accounts.iter().peekable();
         let player_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
@@ -238,7 +234,6 @@ impl Processor {
         let PurchaseKeysParams {
             mut sol_to_be_added,
             team,
-            // affiliate_pk, //todo replace with a system where we check for 1 more passed key
         } = purchase_params;
         let player_pk = player_info.key;
 
@@ -391,15 +386,23 @@ impl Processor {
         let mut p3d_share = 0;
         let mut f3d_share = 0;
 
-        //if player has an affiliate listed, record their share, else share goes to p3d holders
-        if player_round_state.has_affiliate() {
-            //optional account passed only if affiliate listed
+        //if player has an affiliate listed, they MUST pass another account
+        if player_round_state.has_affiliate_listed() && account_info_iter.peek().is_none() {
+            return Err(SomeError::BadError.into());
+        }
+
+        //however there is a case where they don't have an affiliate but want to add one -
+        //this is why we do the check again
+        if account_info_iter.peek().is_some() {
+            //doesn't matter if this the old or the new affiliate. It's the one that will be credited
+            //and listed on player's profile (below)
             let affiliate_round_state_info = next_account_info(account_info_iter)?;
+            let affiliate_owner_info = next_account_info(account_info_iter)?;
             let mut affiliate_round_state = deserialize_or_create_player_round_state(
                 affiliate_round_state_info,
                 player_info,
                 system_program_info,
-                &player_round_state.last_affiliate_pk,
+                affiliate_owner_info.key,
                 game_state.round_id,
                 game_state.version,
                 program_id,
@@ -407,6 +410,8 @@ impl Processor {
             affiliate_round_state
                 .accum_aff
                 .try_self_add(affiliate_share)?;
+            //update the affiliate key going forward (may or may not have changed)
+            player_round_state.last_affiliate_pk = *affiliate_round_state_info.key;
         } else {
             p3d_share.try_self_add(affiliate_share)?;
             affiliate_share = 0;
