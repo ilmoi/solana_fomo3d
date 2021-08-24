@@ -33,7 +33,7 @@ use crate::{
     },
 };
 use spl_token::solana_program::program_pack::Pack;
-use spl_token::state::Account;
+use spl_token::state::{Account, Mint};
 
 pub struct Processor {}
 
@@ -89,7 +89,15 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
 
-        //todo verify mint info is a mint account and that comm and p3d wallets belong to it
+        Mint::unpack(&mint_info.data.borrow_mut())?; //this proves it's indeed a mint account
+        let com_wallet = Account::unpack(&com_wallet_info.data.borrow_mut())?;
+        let p3d_wallet = Account::unpack(&p3d_wallet_info.data.borrow_mut())?;
+        if com_wallet.mint != *mint_info.key {
+            return Err(SomeError::BadError.into());
+        }
+        if p3d_wallet.mint != *mint_info.key {
+            return Err(SomeError::BadError.into());
+        }
 
         let mut game_state = create_game_state(
             game_state_info,
@@ -99,8 +107,7 @@ impl Processor {
             program_id,
         )?;
 
-        //will be incremented to 1 when 1st round initialized
-        game_state.round_id = 0;
+        game_state.round_id = 0; //will be incremented to 1 when 1st round initialized
         game_state.round_init_time = ROUND_INIT_TIME;
         game_state.round_inc_time = ROUND_INC_TIME;
         game_state.round_max_time = ROUND_MAX_TIME;
@@ -130,9 +137,10 @@ impl Processor {
 
         //todo need some sort of check that the previous round has ended to start a new round
         //todo also some sort of check on who can start the round
-        //todo verify mint info
 
-        let (mut game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
+        let (mut game_state, game_state_seed, game_state_bump) =
+            deserialize_game_state(game_state_info, program_id)?;
+        let previous_round_id = game_state.round_id;
         game_state.round_id.try_self_add(1)?;
 
         let mut round_state = create_round_state(
@@ -156,10 +164,50 @@ impl Processor {
             program_id,
         )?;
 
-        //todo transfer money from previous round's pot, if such exists
+        // --------------------------------------- deal with previous round
+        if previous_round_id != 0 {
+            //optional accounts in case this isn't the 1st round
+            let previous_round_state_info = next_account_info(account_info_iter)?;
+            let previous_round_pot_info = next_account_info(account_info_iter)?;
+            let mut previous_round_state = deserialize_round_state(
+                previous_round_state_info,
+                previous_round_id,
+                game_state.version,
+                program_id,
+            )?;
+            deserialize_pot(
+                previous_round_pot_info,
+                game_state_info,
+                previous_round_id,
+                game_state.version,
+                program_id,
+            )?;
+            //previous round must have ended, otherwise no-go
+            //todo temp
+            // if !previous_round_state.ended {
+            //     return Err(SomeError::BadError.into());
+            // }
+            //move tokens from previous round to this one
+            let move_over_amount = previous_round_state
+                .accum_next_round_share
+                .try_sub(previous_round_state.withdrawn_next_round)?;
+            spl_token_transfer(TokenTransferParams {
+                source: previous_round_pot_info.clone(),
+                destination: pot_info.clone(),
+                amount: move_over_amount.try_cast()?,
+                authority: game_state_info.clone(),
+                authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
+                token_program: token_program_info.clone(),
+            })?;
+            //update previous round state
+            previous_round_state
+                .withdrawn_next_round
+                .try_self_add(move_over_amount)?;
+            previous_round_state.serialize(&mut *previous_round_state_info.data.borrow_mut())?;
+        }
 
+        // --------------------------------------- update current round state
         let clock = Clock::get()?;
-
         // all attributes not mentioned automatically start at 0.
         round_state.round_id = game_state.round_id;
         round_state.start_time = clock.unix_timestamp;

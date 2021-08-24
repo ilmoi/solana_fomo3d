@@ -17,7 +17,7 @@ let connection: Connection;
 const OUR_PROGRAM_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
 const ownerKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([208, 175, 150, 242, 88, 34, 108, 88, 177, 16, 168, 75, 115, 181, 199, 242, 120, 4, 78, 75, 19, 227, 13, 215, 184, 108, 226, 53, 111, 149, 179, 84, 137, 121, 79, 1, 160, 223, 124, 241, 202, 203, 220, 237, 50, 242, 57, 158, 226, 207, 203, 188, 43, 28, 70, 110, 214, 234, 251, 15, 249, 157, 62, 80]));
 const aliceKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([201, 101, 147, 128, 138, 189, 70, 190, 202, 49, 28, 26, 32, 21, 104, 185, 191, 41, 20, 171, 3, 144, 4, 26, 169, 73, 180, 171, 71, 22, 48, 135, 231, 91, 179, 215, 3, 117, 187, 183, 96, 74, 154, 155, 197, 243, 114, 104, 20, 123, 105, 47, 181, 123, 171, 133, 73, 181, 102, 41, 236, 78, 210, 176]));
-const thirdPartyKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([177,217,193,155,63,150,164,184,81,82,121,165,202,87,86,237,218,226,212,201,167,170,149,183,59,43,155,112,189,239,231,110,162,218,184,20,108,2,92,114,203,184,223,69,137,206,102,71,162,0,127,63,170,96,137,108,228,31,181,113,57,189,30,76]));
+const thirdPartyKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([177, 217, 193, 155, 63, 150, 164, 184, 81, 82, 121, 165, 202, 87, 86, 237, 218, 226, 212, 201, 167, 170, 149, 183, 59, 43, 155, 112, 189, 239, 231, 110, 162, 218, 184, 20, 108, 2, 92, 114, 203, 184, 223, 69, 137, 206, 102, 71, 162, 0, 127, 63, 170, 96, 137, 108, 228, 31, 181, 113, 57, 189, 30, 76]));
 
 let gameState: PublicKey;
 let roundState: PublicKey;
@@ -31,7 +31,7 @@ let wSolPot: PublicKey;
 
 let version: number;
 //todo later need to sub round<1> for automatic
-const round = 1;
+let round = 1;
 
 // ============================================================================= helpers
 
@@ -135,7 +135,7 @@ async function initGame() {
     //todo unpack and verify game state
 }
 
-async function initRound() {
+async function initRound(second = false) {
     console.log('// --------------------------------------- init round')
     let roundBumpSeed, potBumpSeed;
     //round state pda
@@ -152,28 +152,46 @@ async function initRound() {
     )
     console.log('round pot pda is:', wSolPot.toBase58());
 
+    //keys
+    let keys = [
+        {pubkey: ownerKp.publicKey, isSigner: true, isWritable: false},
+        {pubkey: gameState, isSigner: false, isWritable: true},
+        {pubkey: roundState, isSigner: false, isWritable: true},
+        {pubkey: wSolPot, isSigner: false, isWritable: true},
+        {pubkey: wSolMint.publicKey, isSigner: false, isWritable: false},
+        {pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
+        {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false
+        },
+        {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
+    ];
+    if (second) {
+        let [roundState2, roundBumpSeed2] = await PublicKey.findProgramAddress(
+            [Buffer.from(`round${round-1}${version}`)],
+            OUR_PROGRAM_ID,
+        )
+        let [wSolPot2, potBumpSeed2] = await PublicKey.findProgramAddress(
+            [Buffer.from(`pot${round-1}${version}`)],
+            OUR_PROGRAM_ID,
+        )
+        keys.push({pubkey: roundState2, isSigner: false, isWritable: true});
+        keys.push({pubkey: wSolPot2, isSigner: false, isWritable: true});
+    }
+
     //init round ix
     const data = Buffer.from(Uint8Array.of(1));
     const initRoundIx = new TransactionInstruction({
-        keys: [
-            {pubkey: ownerKp.publicKey, isSigner: true, isWritable: false},
-            {pubkey: gameState, isSigner: false, isWritable: true},
-            {pubkey: roundState, isSigner: false, isWritable: true},
-            {pubkey: wSolPot, isSigner: false, isWritable: true},
-            {pubkey: wSolMint.publicKey, isSigner: false, isWritable: false},
-            {pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
-            {
-                pubkey: SystemProgram.programId,
-                isSigner: false,
-                isWritable: false
-            },
-            {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
-        ],
+        keys,
         programId: OUR_PROGRAM_ID,
         data,
     });
     await prepareAndSendTx([initRoundIx], [ownerKp]);
     //todo unpack and verify round state
+
+    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
+    console.log('round pot has', potAmount as any / LAMPORTS_PER_SOL);
 }
 
 async function purchaseKeys() {
@@ -181,7 +199,7 @@ async function purchaseKeys() {
     let bump;
     //player-round state pda
     [aliceRoundState, bump] = await PublicKey.findProgramAddress(
-        [Buffer.from(`pr${aliceKp.publicKey.toBase58().substring(0,16)}${round}${version}`)],
+        [Buffer.from(`pr${aliceKp.publicKey.toBase58().substring(0, 16)}${round}${version}`)],
         OUR_PROGRAM_ID,
     )
     console.log('player-round state pda is:', aliceRoundState.toBase58());
@@ -294,13 +312,17 @@ async function play() {
     await initRound();
     await purchaseKeys();
     await withdrawSol();
-    await setTimeout(async () => {
-        await endRound();
-        await withdrawSol();
-    }, 5000);
+    // await setTimeout(async () => {
+    //     await endRound();
+    //     await withdrawSol();
+    // }, 5000);
     await withdrawCom();
+    round = 2;
+    await initRound(true);
 
 }
 
 play()
 
+//todo remember to test the 2 places where you pass optional accounts
+//todo basically try calling every function twice to see
