@@ -294,11 +294,10 @@ async function play() {
     await initRound();
     await purchaseKeys();
     await withdrawSol();
-    // await setTimeout(async () => {
-    //     await endRound();
-    //     await withdrawSol();
-    // }, 5000);
-    await withdrawCom();
+    await setTimeout(async () => {
+        await endRound();
+        await withdrawSol();
+    }, 5000);
     await withdrawCom();
 
 }

@@ -133,7 +133,7 @@ impl Processor {
         //todo verify mint info
 
         let (mut game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
-        game_state.round_id += 1;
+        game_state.round_id.try_self_add(1)?;
 
         let mut round_state = create_round_state(
             round_state_info,
@@ -241,22 +241,34 @@ impl Processor {
         let fee_split;
         let player_team = match team {
             0 => {
-                round_state.accum_sol_by_team.whale += sol_to_be_added;
+                round_state
+                    .accum_sol_by_team
+                    .whale
+                    .try_self_add(sol_to_be_added)?;
                 fee_split = WHALE_FEE_SPLIT;
                 Team::Whale
             }
             1 => {
-                round_state.accum_sol_by_team.bear += sol_to_be_added;
+                round_state
+                    .accum_sol_by_team
+                    .bear
+                    .try_self_add(sol_to_be_added)?;
                 fee_split = BEAR_FEE_SPLIT;
                 Team::Bear
             }
             3 => {
-                round_state.accum_sol_by_team.bull += sol_to_be_added;
+                round_state
+                    .accum_sol_by_team
+                    .bull
+                    .try_self_add(sol_to_be_added)?;
                 fee_split = BULL_FEE_SPLIT;
                 Team::Bull
             }
             _ => {
-                round_state.accum_sol_by_team.snek += sol_to_be_added;
+                round_state
+                    .accum_sol_by_team
+                    .snek
+                    .try_self_add(sol_to_be_added)?;
                 fee_split = SNEK_FEE_SPLIT;
                 Team::Snek
             }
@@ -293,7 +305,7 @@ impl Processor {
             let clock = Clock::get()?;
 
             //with every extra player chance of airdrop increases by 0.1%
-            round_state.airdrop_tracker += 1;
+            round_state.airdrop_tracker.try_self_add(1)?;
 
             if airdrop_winner(player_pk, &clock, round_state.airdrop_tracker)? {
                 //NOTE: affiliate winnings _exclude_ contribution from this purchase, which is recorded below
@@ -311,8 +323,8 @@ impl Processor {
                 };
 
                 //send money
-                round_state.accum_airdrop_share -= prize;
-                player_round_state.accum_winnings += prize;
+                round_state.accum_airdrop_share.try_self_sub(prize)?;
+                player_round_state.accum_winnings.try_self_add(prize)?;
                 //restart the lottery
                 round_state.airdrop_tracker = 0;
             }
@@ -344,18 +356,24 @@ impl Processor {
                 game_state.version,
                 program_id,
             )?;
-            affiliate_round_state.accum_aff += affiliate_share;
+            affiliate_round_state
+                .accum_aff
+                .try_self_add(affiliate_share)?;
         } else {
-            p3d_share += affiliate_share;
+            p3d_share.try_self_add(affiliate_share)?;
             affiliate_share = 0;
         }
 
-        p3d_share += sol_to_be_added
-            .try_mul(fee_split.p3d as u128)?
-            .try_floor_div(100)?;
-        f3d_share += sol_to_be_added
-            .try_mul(fee_split.f3d as u128)?
-            .try_floor_div(100)?;
+        p3d_share.try_self_add(
+            sol_to_be_added
+                .try_mul(fee_split.p3d as u128)?
+                .try_floor_div(100)?,
+        )?;
+        f3d_share.try_self_add(
+            sol_to_be_added
+                .try_mul(fee_split.f3d as u128)?
+                .try_floor_div(100)?,
+        )?;
 
         let still_in_play = sol_to_be_added
             .try_sub(community_share)?
@@ -382,24 +400,32 @@ impl Processor {
         round_state.end_time =
             (round_state.end_time + ROUND_INC_TIME).min(round_state.end_time + ROUND_MAX_TIME);
         //update totals
-        round_state.accum_keys += new_keys;
-        round_state.accum_sol_pot += sol_to_be_added;
+        round_state.accum_keys.try_self_add(new_keys)?;
+        round_state.accum_sol_pot.try_self_add(sol_to_be_added)?;
         //distribute shares
-        round_state.accum_community_share += community_share;
-        round_state.accum_airdrop_share += airdrop_share;
-        round_state.accum_next_round_share += next_round_share;
-        round_state.accum_aff_share += affiliate_share;
-        round_state.accum_p3d_share += p3d_share;
-        round_state.accum_f3d_share += f3d_share;
-        round_state.still_in_play += still_in_play;
+        round_state
+            .accum_community_share
+            .try_self_add(community_share)?;
+        round_state
+            .accum_airdrop_share
+            .try_self_add(airdrop_share)?;
+        round_state
+            .accum_next_round_share
+            .try_self_add(next_round_share)?;
+        round_state.accum_aff_share.try_self_add(affiliate_share)?;
+        round_state.accum_p3d_share.try_self_add(p3d_share)?;
+        round_state.accum_f3d_share.try_self_add(f3d_share)?;
+        round_state.still_in_play.try_self_add(still_in_play)?;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         verify_round_state(&round_state)?;
 
         // --------------------------------------- serialize player-round state
         //update totals
-        player_round_state.accum_keys += new_keys;
-        player_round_state.accum_sol_added += sol_to_be_added;
+        player_round_state.accum_keys.try_self_add(new_keys)?;
+        player_round_state
+            .accum_sol_added
+            .try_self_add(sol_to_be_added)?;
         player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -491,9 +517,15 @@ impl Processor {
         })?;
 
         // --------------------------------------- update player state
-        player_round_state.withdrawn_aff += aff_to_withdraw;
-        player_round_state.withdrawn_winnings += winnings_to_withdraw;
-        player_round_state.withdrawn_f3d += f3d_to_withdraw;
+        player_round_state
+            .withdrawn_aff
+            .try_self_add(aff_to_withdraw)?;
+        player_round_state
+            .withdrawn_winnings
+            .try_self_add(winnings_to_withdraw)?;
+        player_round_state
+            .withdrawn_f3d
+            .try_self_add(f3d_to_withdraw)?;
         player_round_state.serialize(&mut *player_round_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -568,17 +600,23 @@ impl Processor {
         msg!("{}", next_round_share);
 
         // --------------------------------------- assign funds to winner
-        player_round_state.accum_winnings += grand_prize;
+        player_round_state
+            .accum_winnings
+            .try_self_add(grand_prize)?;
         player_round_state.serialize(&mut *winner_state_info.data.borrow_mut())?;
 
         // --------------------------------------- update round state
         round_state.ended = true;
         //update shares
-        round_state.accum_community_share += community_share;
-        round_state.accum_next_round_share += next_round_share;
-        round_state.accum_p3d_share += p3d_share;
-        round_state.accum_f3d_share += f3d_share;
-        round_state.final_prize_share += grand_prize;
+        round_state
+            .accum_community_share
+            .try_self_add(community_share)?;
+        round_state
+            .accum_next_round_share
+            .try_self_add(next_round_share)?;
+        round_state.accum_p3d_share.try_self_add(p3d_share)?;
+        round_state.accum_f3d_share.try_self_add(f3d_share)?;
+        round_state.final_prize_share.try_self_add(grand_prize)?;
         round_state.still_in_play = 0;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
@@ -647,7 +685,7 @@ impl Processor {
         })?;
 
         // --------------------------------------- update round state
-        round_state.withdrawn_com += amount_to_withdraw;
+        round_state.withdrawn_com.try_self_add(amount_to_withdraw)?;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
 
         Ok(())

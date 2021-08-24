@@ -8,11 +8,12 @@ use solana_program::entrypoint::ProgramResult;
 
 pub trait TrySub: Sized {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError>;
+    fn try_self_sub(&mut self, rhs: Self) -> ProgramResult;
 }
 
 pub trait TryAdd: Sized {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError>;
-    fn try_self_add(self, rhs: Self) -> ProgramResult;
+    fn try_self_add(&mut self, rhs: Self) -> ProgramResult;
 }
 
 pub trait TryDiv<RHS>: Sized {
@@ -40,23 +41,81 @@ pub trait TryRem: Sized {
     fn try_rem(self, rhs: Self) -> Result<Self, ProgramError>;
 }
 
+// --------------------------------------- u8
+
+impl TrySub for u8 {
+    fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_sub(rhs)?;
+        Ok(())
+    }
+}
+
+impl TryAdd for u8 {
+    fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_add(rhs)?;
+        Ok(())
+    }
+}
+
+// --------------------------------------- i64
+
+impl TrySub for i64 {
+    fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_sub(rhs)?;
+        Ok(())
+    }
+}
+
+impl TryAdd for i64 {
+    fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_add(rhs)?;
+        Ok(())
+    }
+}
+
 // --------------------------------------- u64
 
-// impl TrySub for u64 {
-//     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-//         self.checked_sub(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryAdd for u64 {
-//     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-//         self.checked_add(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
+impl TrySub for u64 {
+    fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_sub(rhs)?;
+        Ok(())
+    }
+}
+
+impl TryAdd for u64 {
+    fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
+        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+    }
+    fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_add(rhs)?;
+        Ok(())
+    }
+}
+
 // impl TryDiv<u64> for u64 {
-//     fn try_div(self, rhs: u64) -> Result<Self, ProgramError> {
+//     fn try_floor_div(self, rhs: u64) -> Result<Self, ProgramError> {
 //         self.checked_div(rhs).ok_or(SomeError::BadError.into())
+//     }
+//     fn try_ceil_div(self, rhs: u64) -> Result<Self, ProgramError> {
+//         let result = self
+//             .checked_ceil_div(rhs)
+//             .ok_or::<ProgramError>(SomeError::BadError.into())?;
+//         Ok(result.0)
 //     }
 // }
 //
@@ -90,15 +149,18 @@ impl TrySub for u128 {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
         self.checked_sub(rhs).ok_or(SomeError::BadError.into())
     }
+    fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_sub(rhs)?;
+        Ok(())
+    }
 }
 
 impl TryAdd for u128 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
         self.checked_add(rhs).ok_or(SomeError::BadError.into())
     }
-    //useful when updating accumulated values in place
-    fn try_self_add(mut self, rhs: Self) -> ProgramResult {
-        self = self.try_add(rhs)?;
+    fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
+        *self = self.try_add(rhs)?;
         Ok(())
     }
 }
@@ -255,12 +317,19 @@ mod tests {
         assert_eq!(r, 3);
     }
 
-    //todo come back to this after SO answer
-    // #[test]
-    // fn test_self_add() {
-    //     let x = 10;
-    //     let y = 2;
-    //     x.try_self_add(y).unwrap();
-    //     assert_eq!(x, 12);
-    // }
+    #[test]
+    fn test_self_add() {
+        let mut x = 10_u128;
+        let y = 2;
+        x.try_self_add(y).unwrap();
+        assert_eq!(x, 12);
+    }
+
+    #[test]
+    fn test_self_sub() {
+        let mut x = 10_u128;
+        let y = 2;
+        x.try_self_sub(y).unwrap();
+        assert_eq!(x, 8);
+    }
 }
