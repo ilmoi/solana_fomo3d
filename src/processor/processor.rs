@@ -770,9 +770,9 @@ impl Processor {
     }
 }
 
-//todo add owner checks + rent checks + other checks from token-lending
-//todo https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
-//todo read the security stuff
+//todo security
+// - https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
+// - look at checks in token lending
 //todo clean up in the end
 // - comments
 // - msg!()

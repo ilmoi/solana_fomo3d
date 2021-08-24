@@ -10,7 +10,13 @@ import BN from "bn.js";
 import * as borsh from 'borsh';
 import {assert} from "./utils";
 import fs from "fs";
-import {gameSchema, GameState} from "./layout";
+import {
+    gameSchema,
+    GameState, PlayerRoundState, playerRoundStateSchema,
+    roundSchema,
+    RoundState, SolByTeam,
+    solByTeamSchema
+} from "./layout";
 
 // ============================================================================= globals & consts
 let connection: Connection;
@@ -93,6 +99,22 @@ async function getGameState() {
     let gameStateInfo = await connection.getAccountInfo(gameState);
     let gameStateData = borsh.deserialize(gameSchema, GameState, gameStateInfo?.data as Buffer);
     console.log(gameStateData);
+}
+
+async function getRoundState() {
+    let roundStateInfo = await connection.getAccountInfo(roundState);
+    let roundStateData = borsh.deserialize(roundSchema, RoundState, roundStateInfo?.data as Buffer);
+    let solByTeam = borsh.deserialize(solByTeamSchema, SolByTeam, roundStateData.accum_sol_by_team as any as Buffer);
+    console.log(roundStateData);
+    console.log(solByTeam);
+
+    //todo was told to check here - https://github.com/solana-labs/dapp-scaffold/blob/main/src/utils/layout.ts
+}
+
+async function getPlayerRoundState() {
+    let playerRoundStateInfo = await connection.getAccountInfo(aliceRoundState);
+    let playerRoundStateData = borsh.deserialize(playerRoundStateSchema, PlayerRoundState, playerRoundStateInfo?.data as Buffer);
+    console.log(playerRoundStateData);
 }
 
 // ============================================================================= core
@@ -321,15 +343,21 @@ async function play() {
     readAndUpdateVersion();
     await getConnection();
     await initGame();
+    // await getGameState();
+
     await initRound();
+    // await getRoundState();
+
     await purchaseKeys();
+    await getPlayerRoundState();
+
     // await purchaseKeys(true);
-    await withdrawSol();
-    await setTimeout(async () => {
-        await endRound();
-        await withdrawSol();
-    }, 5000);
-    await withdrawCom();
+    // await withdrawSol();
+    // await setTimeout(async () => {
+    //     await endRound();
+    //     await withdrawSol();
+    // }, 5000);
+    // await withdrawCom();
     // round = 2;
     // await initRound(true);
 
