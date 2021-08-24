@@ -12,7 +12,7 @@ use solana_program::{
 use spl_token::state::Account;
 
 use crate::{
-    error::SomeError,
+    error::GameError,
     processor::{
         spl_token::{spl_token_init_account, TokenInitializeAccountParams},
         util::account_exists,
@@ -56,7 +56,7 @@ pub fn create_game_state<'a>(
         program_id,
     )?;
     GameState::try_from_slice(&game_state_info.data.borrow_mut())
-        .map_err(|_| SomeError::BadError.into())
+        .map_err(|_| GameError::UnpackingFailure.into())
 }
 
 /// Builds seed + verifies + deserializes pda
@@ -69,7 +69,7 @@ pub fn deserialize_round_state<'a>(
     let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, version);
     verify_pda_matches(round_state_seed.as_bytes(), program_id, round_state_info)?;
     RoundState::try_from_slice(&round_state_info.data.borrow_mut())
-        .map_err(|_| SomeError::BadError.into())
+        .map_err(|_| GameError::UnpackingFailure.into())
 }
 
 /// Builds seed + verifies + creates pda
@@ -92,7 +92,7 @@ pub fn create_round_state<'a>(
         program_id,
     )?;
     RoundState::try_from_slice(&round_state_info.data.borrow_mut())
-        .map_err(|_| SomeError::BadError.into())
+        .map_err(|_| GameError::UnpackingFailure.into())
 }
 
 /// Builds seed + verifies + deserializes pda
@@ -116,7 +116,7 @@ pub fn deserialize_player_round_state<'a>(
         player_round_state_info,
     )?;
     PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())
-        .map_err(|_| SomeError::BadError.into())
+        .map_err(|_| GameError::UnpackingFailure.into())
 }
 
 /// Builds seed + verifies + deserializes/creates pda if missing
@@ -173,8 +173,7 @@ pub fn deserialize_pot<'a>(
 ) -> Result<Account, ProgramError> {
     let pot = Account::unpack(&pot_info.data.borrow_mut())?;
     if pot.owner != *game_state_info.key {
-        //bad owner or something
-        return Err(SomeError::BadError.into());
+        return Err(GameError::InvalidOwner.into());
     }
     let pot_seed = format!("{}{}{}", POT_SEED, round_id, version);
     verify_pda_matches(pot_seed.as_bytes(), program_id, pot_info)?;
@@ -212,7 +211,7 @@ pub fn create_pot<'a>(
         rent: rent_info.clone(),
         token_program: token_program_info.clone(),
     })?;
-    Account::unpack(&pot_info.data.borrow_mut()).map_err(|_| SomeError::BadError.into())
+    Account::unpack(&pot_info.data.borrow_mut()).map_err(|_| GameError::UnpackingFailure.into())
 }
 
 // --------------------------------------- private
@@ -267,7 +266,7 @@ fn verify_pda_matches(
     let (pda, bump_seed) = Pubkey::find_program_address(&[pda_seed], program_id);
     if pda != *pda_info.key {
         msg!("pda doesnt match: {}, {}", pda, *pda_info.key);
-        return Err(SomeError::BadError.into());
+        return Err(GameError::PDAMatchFailure.into());
     }
     Ok(bump_seed)
 }

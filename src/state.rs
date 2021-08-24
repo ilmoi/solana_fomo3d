@@ -23,10 +23,10 @@ pub struct GameState {
 }
 
 // pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
-pub const ROUND_INIT_TIME: i64 = 2; //todo temp
+pub const ROUND_INIT_TIME: i64 = 3; //todo temp
 
 // pub const ROUND_INC_TIME: i64 = 30; //30s
-pub const ROUND_INC_TIME: i64 = 2; //todo temp
+pub const ROUND_INC_TIME_PER_KEY: i64 = 0; //todo temp
 pub const ROUND_MAX_TIME: i64 = 24 * 60 * 60; //24h
 
 // --------------------------------------- fees & teams
@@ -138,17 +138,3 @@ impl PlayerRoundState {
         !is_zero(&self.last_affiliate_pk.to_bytes())
     }
 }
-
-// --------------------------------------- other stuff
-
-//how to get size:
-//let t = Team::Bear(BEAR_FEE_SPLIT, BEAR_POT_SPLIT);
-//let t_size = t.try_to_vec().unwrap().len();
-//msg!("team size is {}", t_size);
-
-//todo do I need an is_initialized for each of these?
-// - eg lending has a cool fn assert_initialized
-
-//todo clean up in the end
-// - comments
-// - msg!()

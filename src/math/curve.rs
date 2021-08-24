@@ -1,7 +1,7 @@
 use solana_program::{msg, native_token::LAMPORTS_PER_SOL, program_error::ProgramError};
 
 use crate::{
-    error::SomeError,
+    error::GameError,
     math::common::{TryAdd, TryDiv, TryMul, TryPow, TrySqrt, TrySub},
 };
 
@@ -9,9 +9,9 @@ pub fn keys_received(current_sol: u128, new_sol: u128) -> Result<u128, ProgramEr
     if current_sol == 0 && new_sol == 0 {
         return Ok(0);
     }
-    let total_keys = sol_to_keys(current_sol + new_sol)?;
+    let total_keys = sol_to_keys(current_sol.try_add(new_sol)?)?;
     let current_keys = sol_to_keys(current_sol)?;
-    Ok(total_keys - current_keys)
+    total_keys.try_sub(current_keys)
 }
 
 pub fn sol_received(current_keys: u128, sold_keys: u128) -> Result<u128, ProgramError> {
@@ -19,8 +19,8 @@ pub fn sol_received(current_keys: u128, sold_keys: u128) -> Result<u128, Program
         return Ok(0);
     }
     let total_sol = keys_to_sol(current_keys)?;
-    let remaining_sol = keys_to_sol(current_keys - sold_keys)?;
-    Ok(total_sol - remaining_sol)
+    let remaining_sol = keys_to_sol(current_keys.try_sub(sold_keys)?)?;
+    total_sol.try_sub(remaining_sol)
 }
 
 //constants from https://gist.github.com/ilmoi/4daad0d6e9730cc6af833c065a95b717
@@ -38,9 +38,8 @@ const E: u128 = 1562500;
 fn sol_to_keys(sol: u128) -> Result<u128, ProgramError> {
     if sol == 0 {
         return Ok(0);
-    } else if sol > 10_000_000_000 * LAMPORTS_PER_SOL as u128 {
-        msg!("passed in lamport amount of {} exceeds max threshold", sol);
-        return Err(SomeError::BadError.into());
+    } else if sol > 10_000_000_000.try_mul(LAMPORTS_PER_SOL as u128)? {
+        return Err(GameError::AboveThreshold.into());
     }
     // (sqrt[(sol * a * b) + c] - d) / e
     sol.try_mul(A)?
@@ -57,7 +56,7 @@ fn sol_to_keys(sol: u128) -> Result<u128, ProgramError> {
 fn keys_to_sol(keys: u128) -> Result<u128, ProgramError> {
     if keys > 11313228509 {
         msg!("passed in keys amount of {} exceeds max threshold", keys);
-        return Err(SomeError::BadError.into());
+        return Err(GameError::AboveThreshold.into());
     }
     // [(ke + d)^2 - c] / ab
     keys.try_mul(E)?

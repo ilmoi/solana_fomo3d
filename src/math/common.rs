@@ -1,10 +1,10 @@
 use std::convert::TryFrom;
 
+use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
 use spl_math::approximations::sqrt;
 
-use crate::{error::SomeError, math::precise::CheckedCeilDiv};
-use solana_program::entrypoint::ProgramResult;
+use crate::{error::GameError, math::precise::CheckedCeilDiv};
 
 pub trait TrySub: Sized {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError>;
@@ -45,7 +45,8 @@ pub trait TryRem: Sized {
 
 impl TrySub for u8 {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+        self.checked_sub(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_sub(rhs)?;
@@ -55,7 +56,8 @@ impl TrySub for u8 {
 
 impl TryAdd for u8 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+        self.checked_add(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_add(rhs)?;
@@ -67,7 +69,8 @@ impl TryAdd for u8 {
 
 impl TrySub for i64 {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+        self.checked_sub(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_sub(rhs)?;
@@ -77,7 +80,8 @@ impl TrySub for i64 {
 
 impl TryAdd for i64 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+        self.checked_add(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_add(rhs)?;
@@ -89,7 +93,8 @@ impl TryAdd for i64 {
 
 impl TrySub for u64 {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+        self.checked_sub(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_sub(rhs)?;
@@ -99,7 +104,8 @@ impl TrySub for u64 {
 
 impl TryAdd for u64 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+        self.checked_add(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_add(rhs)?;
@@ -107,47 +113,12 @@ impl TryAdd for u64 {
     }
 }
 
-// impl TryDiv<u64> for u64 {
-//     fn try_floor_div(self, rhs: u64) -> Result<Self, ProgramError> {
-//         self.checked_div(rhs).ok_or(SomeError::BadError.into())
-//     }
-//     fn try_ceil_div(self, rhs: u64) -> Result<Self, ProgramError> {
-//         let result = self
-//             .checked_ceil_div(rhs)
-//             .ok_or::<ProgramError>(SomeError::BadError.into())?;
-//         Ok(result.0)
-//     }
-// }
-//
-// impl TryMul<u64> for u64 {
-//     fn try_mul(self, rhs: u64) -> Result<Self, ProgramError> {
-//         self.checked_mul(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryPow<u32> for u64 {
-//     fn try_pow(self, rhs: u32) -> Result<Self, ProgramError> {
-//         self.checked_pow(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TrySqrt for u64 {
-//     fn try_sqrt(self) -> Result<Self, ProgramError> {
-//         sqrt(self).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryRem for u64 {
-//     fn try_rem(self, rhs: Self) -> Result<Self, ProgramError> {
-//         self.checked_rem(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-
 // --------------------------------------- u128
 
 impl TrySub for u128 {
     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_sub(rhs).ok_or(SomeError::BadError.into())
+        self.checked_sub(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_sub(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_sub(rhs)?;
@@ -157,7 +128,8 @@ impl TrySub for u128 {
 
 impl TryAdd for u128 {
     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_add(rhs).ok_or(SomeError::BadError.into())
+        self.checked_add(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_self_add(&mut self, rhs: Self) -> ProgramResult {
         *self = self.try_add(rhs)?;
@@ -167,83 +139,49 @@ impl TryAdd for u128 {
 
 impl TryDiv<u128> for u128 {
     fn try_floor_div(self, rhs: u128) -> Result<Self, ProgramError> {
-        self.checked_div(rhs).ok_or(SomeError::BadError.into())
+        self.checked_div(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
     fn try_ceil_div(self, rhs: u128) -> Result<Self, ProgramError> {
         let result = self
             .checked_ceil_div(rhs)
-            .ok_or::<ProgramError>(SomeError::BadError.into())?;
+            .ok_or::<ProgramError>(GameError::CalculationFailure.into())?;
         Ok(result.0)
     }
 }
 
 impl TryMul<u128> for u128 {
     fn try_mul(self, rhs: u128) -> Result<Self, ProgramError> {
-        self.checked_mul(rhs).ok_or(SomeError::BadError.into())
+        self.checked_mul(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
 }
 
 impl TryPow<u32> for u128 {
     fn try_pow(self, rhs: u32) -> Result<Self, ProgramError> {
-        self.checked_pow(rhs).ok_or(SomeError::BadError.into())
+        self.checked_pow(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
 }
 
 impl TrySqrt for u128 {
     fn try_sqrt(self) -> Result<Self, ProgramError> {
-        sqrt(self).ok_or(SomeError::BadError.into())
+        sqrt(self).ok_or(GameError::CalculationFailure.into())
     }
 }
 
 impl TryCast<u64> for u128 {
     fn try_cast(self) -> Result<u64, ProgramError> {
-        u64::try_from(self).map_err(|_| SomeError::BadError.into())
+        u64::try_from(self).map_err(|_| GameError::ConversionFailure.into())
     }
 }
 
 impl TryRem for u128 {
     fn try_rem(self, rhs: Self) -> Result<Self, ProgramError> {
-        self.checked_rem(rhs).ok_or(SomeError::BadError.into())
+        self.checked_rem(rhs)
+            .ok_or(GameError::CalculationFailure.into())
     }
 }
-
-// --------------------------------------- PreciseNumber
-
-// impl TrySub for PreciseNumber {
-//     fn try_sub(self, rhs: Self) -> Result<Self, ProgramError> {
-//         self.checked_sub(&rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryAdd for PreciseNumber {
-//     fn try_add(self, rhs: Self) -> Result<Self, ProgramError> {
-//         self.checked_add(&rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryDiv<PreciseNumber> for PreciseNumber {
-//     fn try_div(self, rhs: PreciseNumber) -> Result<Self, ProgramError> {
-//         self.checked_div(&rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryMul<PreciseNumber> for PreciseNumber {
-//     fn try_mul(self, rhs: PreciseNumber) -> Result<Self, ProgramError> {
-//         self.checked_mul(&rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TryPow<u128> for PreciseNumber {
-//     fn try_pow(self, rhs: u128) -> Result<Self, ProgramError> {
-//         self.checked_pow(rhs).ok_or(SomeError::BadError.into())
-//     }
-// }
-//
-// impl TrySqrt for PreciseNumber {
-//     fn try_sqrt(self) -> Result<Self, ProgramError> {
-//         self.sqrt().ok_or(SomeError::BadError.into())
-//     }
-// }
 
 // --------------------------------------- tests
 

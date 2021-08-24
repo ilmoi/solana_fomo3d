@@ -3,6 +3,8 @@ use solana_program::{
     program_error::ProgramError, pubkey::Pubkey,
 };
 
+use crate::math::common::TryAdd;
+use crate::state::ROUND_INC_TIME_PER_KEY;
 use crate::{
     math::common::{TryDiv, TryMul},
     processor::rng::pseudo_rng,
@@ -35,14 +37,15 @@ pub fn calculate_player_f3d_share(
 ///    (we would have to scape every user account's state to adjust expectations)
 pub fn verify_round_state(round_state: &RoundState) -> ProgramResult {
     let actual_money_in_pot = round_state.accum_sol_pot;
-    let supposed_money_in_pot = round_state.accum_community_share
-        + round_state.accum_airdrop_share
-        + round_state.accum_next_round_share
-        + round_state.accum_aff_share
-        + round_state.accum_p3d_share
-        + round_state.accum_f3d_share
-        + round_state.still_in_play
-        + round_state.final_prize_share;
+    let supposed_money_in_pot = round_state
+        .accum_community_share
+        .try_add(round_state.accum_airdrop_share)?
+        .try_add(round_state.accum_next_round_share)?
+        .try_add(round_state.accum_aff_share)?
+        .try_add(round_state.accum_p3d_share)?
+        .try_add(round_state.accum_f3d_share)?
+        .try_add(round_state.still_in_play)?
+        .try_add(round_state.final_prize_share)?;
     assert_eq!(actual_money_in_pot, supposed_money_in_pot);
     Ok(())
 }
@@ -71,9 +74,20 @@ pub fn is_zero(buf: &[u8]) -> bool {
 
 pub fn round_ended(round_state: &RoundState) -> Result<bool, ProgramError> {
     let clock = Clock::get()?;
+    //todo temp
     msg!(
         "round time left (s): {}",
         round_state.end_time - clock.unix_timestamp
     );
     Ok(round_state.end_time < clock.unix_timestamp)
+}
+
+/// New added delay = minimum of:
+/// - number of keys purchased * time per key
+/// - 24h from now
+pub fn calc_new_delay(new_keys: u128) -> Result<u128, ProgramError> {
+    let clock = Clock::get()?;
+    let day_from_now = clock.unix_timestamp.try_add(24 * 60 * 60)?;
+    let delay_based_on_keys = new_keys.try_mul(ROUND_INC_TIME_PER_KEY as u128)?;
+    Ok(delay_based_on_keys.min(day_from_now as u128))
 }

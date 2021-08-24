@@ -6,7 +6,7 @@ use solana_program::{
     pubkey::Pubkey,
 };
 
-use crate::error::SomeError;
+use crate::error::GameError;
 
 /// Issue a spl_token `InitializeAccount` instruction.
 #[inline(always)]
@@ -25,7 +25,7 @@ pub fn spl_token_init_account(params: TokenInitializeAccountParams<'_>) -> Progr
         owner.key,
     )?;
     let result = invoke(&ix, &[account, mint, owner, rent, token_program]);
-    result.map_err(|_| SomeError::BadError.into())
+    result.map_err(|_| GameError::TokenProgramInvocationFailure.into())
 }
 
 /// Issue a spl_token `InitializeMint` instruction.
@@ -46,7 +46,7 @@ pub fn spl_token_init_mint(params: TokenInitializeMintParams<'_, '_>) -> Program
         decimals,
     )?;
     let result = invoke(&ix, &[mint, rent, token_program]);
-    result.map_err(|_| SomeError::BadError.into())
+    result.map_err(|_| GameError::TokenProgramInvocationFailure.into())
 }
 
 /// Invoke signed unless signers seeds are empty
@@ -86,7 +86,7 @@ pub fn spl_token_transfer(params: TokenTransferParams<'_, '_>) -> ProgramResult 
         &[source, destination, authority, token_program],
         authority_signer_seeds,
     );
-    result.map_err(|_| SomeError::BadError.into())
+    result.map_err(|_| GameError::TokenProgramInvocationFailure.into())
 }
 
 /// Issue a spl_token `MintTo` instruction.
@@ -111,7 +111,7 @@ pub fn spl_token_mint_to(params: TokenMintToParams<'_, '_>) -> ProgramResult {
         &[mint, destination, authority, token_program],
         authority_signer_seeds,
     );
-    result.map_err(|_| SomeError::BadError.into())
+    result.map_err(|_| GameError::TokenProgramInvocationFailure.into())
 }
 
 /// Issue a spl_token `Burn` instruction.
@@ -137,7 +137,7 @@ pub fn spl_token_burn(params: TokenBurnParams<'_, '_>) -> ProgramResult {
         &[source, mint, authority, token_program],
         authority_signer_seeds,
     );
-    result.map_err(|_| SomeError::BadError.into())
+    result.map_err(|_| GameError::TokenProgramInvocationFailure.into())
 }
 
 pub struct TokenInitializeMintParams<'a: 'b, 'b> {

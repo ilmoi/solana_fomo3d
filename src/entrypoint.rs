@@ -3,7 +3,7 @@ use solana_program::{
     program_error::PrintProgramError, pubkey::Pubkey,
 };
 
-use crate::{error::SomeError, processor};
+use crate::{error::GameError, processor};
 
 entrypoint!(process_instruction);
 pub fn process_instruction(
@@ -13,7 +13,7 @@ pub fn process_instruction(
 ) -> ProgramResult {
     if let Err(e) = processor::processor::Processor::process_instruction(program_id, accounts, data)
     {
-        e.print::<SomeError>();
+        e.print::<GameError>();
         return Err(e);
     }
     Ok(())

@@ -324,12 +324,12 @@ async function play() {
     await initRound();
     await purchaseKeys();
     // await purchaseKeys(true);
-    // await withdrawSol();
-    // await setTimeout(async () => {
-    //     await endRound();
-    //     await withdrawSol();
-    // }, 5000);
-    // await withdrawCom();
+    await withdrawSol();
+    await setTimeout(async () => {
+        await endRound();
+        await withdrawSol();
+    }, 5000);
+    await withdrawCom();
     // round = 2;
     // await initRound(true);
 
@@ -337,5 +337,6 @@ async function play() {
 
 play()
 
-//todo remember to test the 2 places where you pass optional accounts
-//todo basically try calling every function twice to see
+//todo finish test-side serialization, then split tests by instruction
+//todo remember to test things like deposits and withdrawals by calling fns AT LEAST TWICE
+//todo remember to test optional params: 1)affiliate during deposit, 2)previous round during round init

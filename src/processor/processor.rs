@@ -10,10 +10,10 @@ use solana_program::{
 };
 
 use crate::processor::pda::deserialize_player_round_state;
-use crate::processor::util::round_ended;
+use crate::processor::util::{account_exists, calc_new_delay, round_ended};
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
-    error::SomeError,
+    error::GameError,
     instruction::{GameInstruction, PurchaseKeysParams, WithdrawParams},
     math::{
         common::{TryAdd, TryCast, TryDiv, TryMul, TrySub},
@@ -28,8 +28,8 @@ use crate::{
         util::{airdrop_winner, calculate_player_f3d_share, verify_round_state},
     },
     state::{
-        Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, ROUND_INC_TIME, ROUND_INIT_TIME,
-        ROUND_MAX_TIME, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+        Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, ROUND_INC_TIME_PER_KEY,
+        ROUND_INIT_TIME, ROUND_MAX_TIME, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
     },
 };
 use spl_token::solana_program::program_pack::Pack;
@@ -89,14 +89,18 @@ impl Processor {
         let mint_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
 
+        if account_exists(game_state_info) {
+            return Err(GameError::AlreadyInitialized.into());
+        }
+
         Mint::unpack(&mint_info.data.borrow_mut())?; //this proves it's indeed a mint account
         let com_wallet = Account::unpack(&com_wallet_info.data.borrow_mut())?;
         let p3d_wallet = Account::unpack(&p3d_wallet_info.data.borrow_mut())?;
         if com_wallet.mint != *mint_info.key {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MintMatchFailure.into());
         }
         if p3d_wallet.mint != *mint_info.key {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MintMatchFailure.into());
         }
 
         let mut game_state = create_game_state(
@@ -109,7 +113,7 @@ impl Processor {
 
         game_state.round_id = 0; //will be incremented to 1 when 1st round initialized
         game_state.round_init_time = ROUND_INIT_TIME;
-        game_state.round_inc_time = ROUND_INC_TIME;
+        game_state.round_inc_time = ROUND_INC_TIME_PER_KEY;
         game_state.round_max_time = ROUND_MAX_TIME;
         game_state.version = version;
         game_state.mint = *mint_info.key;
@@ -134,6 +138,10 @@ impl Processor {
         let rent_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
+
+        if account_exists(round_state_info) {
+            return Err(GameError::AlreadyInitialized.into());
+        }
 
         let (mut game_state, game_state_seed, game_state_bump) =
             deserialize_game_state(game_state_info, program_id)?;
@@ -181,7 +189,7 @@ impl Processor {
             )?;
             //previous round must have ended, otherwise no-go
             if !previous_round_state.ended {
-                return Err(SomeError::BadError.into());
+                return Err(GameError::NotYetEnded.into());
             }
             //move tokens from previous round to this one
             let move_over_amount = previous_round_state
@@ -206,8 +214,11 @@ impl Processor {
         let clock = Clock::get()?;
         // all attributes not mentioned automatically start at 0.
         round_state.round_id = game_state.round_id;
+        //timings
+        //the logic is: once you init a round - it starts immediately with a 1h window before the end
+        //the original game had a number of different game modes, the above was chosen for simplicity
         round_state.start_time = clock.unix_timestamp;
-        round_state.end_time = round_state.start_time + ROUND_INIT_TIME;
+        round_state.end_time = round_state.start_time.try_add(ROUND_INIT_TIME)?;
         round_state.ended = false;
         round_state.accum_sol_pot = pot.amount as u128;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
@@ -246,7 +257,7 @@ impl Processor {
         )?;
         //ensure the round hasn't ended
         if round_ended(&round_state)? {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::AlreadyEnded.into());
         }
         deserialize_pot(
             pot_info,
@@ -266,17 +277,18 @@ impl Processor {
         )?;
         //ensure the user actually owns player_info
         if !player_info.is_signer {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MissingSignature.into());
         }
 
         // --------------------------------------- calc variables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
-        sol_to_be_added = if round_state.accum_sol_pot < 100 * LAMPORTS_PER_SOL as u128
-            && player_round_state.accum_sol_added + sol_to_be_added > LAMPORTS_PER_SOL as u128
+        sol_to_be_added = if round_state.accum_sol_pot < 100.try_mul(LAMPORTS_PER_SOL as u128)?
+            && player_round_state
+                .accum_sol_added
+                .try_add(sol_to_be_added)?
+                > LAMPORTS_PER_SOL as u128
         {
-            let allowed_contribution =
-                LAMPORTS_PER_SOL as u128 - player_round_state.accum_sol_added;
-            allowed_contribution
+            (LAMPORTS_PER_SOL as u128).try_sub(player_round_state.accum_sol_added)?
         } else {
             sol_to_be_added
         };
@@ -328,8 +340,7 @@ impl Processor {
         //  - 1.7 sol/per at max capacity of the game (10bn SOL total - not actually achievable)
         let new_keys = keys_received(round_state.accum_sol_pot, sol_to_be_added)?;
         if new_keys < 1 {
-            msg!("your purchase is too small - min 1 key");
-            return Err(SomeError::BadError.into());
+            return Err(GameError::BelowFloor.into());
         }
 
         // --------------------------------------- transfer funds to pot
@@ -388,7 +399,7 @@ impl Processor {
 
         //if player has an affiliate listed, they MUST pass another account
         if player_round_state.has_affiliate_listed() && account_info_iter.peek().is_none() {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MissingAccount.into());
         }
 
         //however there is a case where they don't have an affiliate but want to add one -
@@ -450,8 +461,9 @@ impl Processor {
         round_state.lead_player_pk = *player_pk;
         round_state.lead_player_team = player_team;
         //update timer
-        round_state.end_time =
-            (round_state.end_time + ROUND_INC_TIME).min(round_state.end_time + ROUND_MAX_TIME);
+        round_state
+            .end_time
+            .try_self_add(calc_new_delay(new_keys)? as i64)?;
         //update totals
         round_state.accum_keys.try_self_add(new_keys)?;
         round_state.accum_sol_pot.try_self_add(sol_to_be_added)?;
@@ -489,7 +501,6 @@ impl Processor {
         accounts: &[AccountInfo],
         withdraw_params: WithdrawParams,
     ) -> ProgramResult {
-        //todo be sure to test with more than 1 round
         let account_info_iter = &mut accounts.iter();
         let player_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
@@ -528,7 +539,7 @@ impl Processor {
         )?;
         //ensure the user actually owns player_info
         if !player_info.is_signer {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MissingSignature.into());
         }
 
         // --------------------------------------- calc withdrawal amounts
@@ -599,8 +610,7 @@ impl Processor {
         )?;
 
         if !round_ended(&round_state)? {
-            msg!("round is still on-going");
-            return Err(SomeError::BadError.into());
+            return Err(GameError::NotYetEnded.into());
         }
 
         let mut player_round_state = deserialize_player_round_state(
@@ -710,15 +720,15 @@ impl Processor {
         )?;
         //ensure the right community wallet is passed
         if game_state.community_wallet != *com_wallet_info.key {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::WrongAccount.into());
         }
         //ensure tx comes from community wallet's owner
         let com_wallet = Account::unpack(&com_wallet_info.data.borrow_mut())?;
         if com_wallet.owner != *com_wallet_owner_info.key {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::InvalidOwner.into());
         }
         if !com_wallet_owner_info.is_signer {
-            return Err(SomeError::BadError.into());
+            return Err(GameError::MissingSignature.into());
         }
 
         // --------------------------------------- transfer tokens
@@ -760,7 +770,10 @@ impl Processor {
     }
 }
 
-//todo add rent checks
-//todo add owner checks + other checks from eg token-lending
+//todo add owner checks + rent checks + other checks from token-lending
 //todo https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
 //todo read the security stuff
+//todo clean up in the end
+// - comments
+// - msg!()
+// - unused fns/vars

@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use solana_program::{clock::Clock, program_error::ProgramError, pubkey::Pubkey};
 
-use crate::math::common::TryRem;
+use crate::math::common::{TryAdd, TryRem};
 
 /// Generates a pseudo-random number in the [0,1000) range.
 /// (!) NOT A REAL RANDOM NUMBER GENERATOR
@@ -14,11 +14,11 @@ pub fn pseudo_rng(player_pk: &Pubkey, clock: &Clock) -> Result<u128, ProgramErro
     let mut data = vec![];
 
     let local = player_pk.to_bytes();
-    let temporal = clock.unix_timestamp as u64
-        + clock.epoch
-        + clock.slot
-        + clock.epoch_start_timestamp as u64
-        + clock.leader_schedule_epoch;
+    let temporal = (clock.unix_timestamp as u64)
+        .try_add(clock.epoch)?
+        .try_add(clock.slot)?
+        .try_add(clock.epoch_start_timestamp as u64)?
+        .try_add(clock.leader_schedule_epoch)?;
 
     data.extend_from_slice(&local);
     data.extend_from_slice(&temporal.to_le_bytes());
