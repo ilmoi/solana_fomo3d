@@ -129,10 +129,8 @@ describe('withdraw sol', () => {
         await purchaseKeys(aliceKp, wSolAliceAcc, 1);
         //bob tries to withdraw without having deposited anything
         await changeGlobalPlayerState(bobKp);
-        await withdrawSol(bobKp, wSolBobAcc);
-        await expect(
-            verifyPotAndAccBalances(wSolBobAcc, 0, 1, 'floor', 100)
-        ).rejects.toThrow("custom program error: 0x8");
+        await expect(withdrawSol(bobKp, wSolBobAcc)).rejects.toThrow("custom program error: 0x8");
+        await verifyPotAndAccBalances(wSolBobAcc, 0, 1, 'floor', 100);
     })
 })
 
