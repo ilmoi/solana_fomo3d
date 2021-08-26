@@ -2,20 +2,68 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub enum GameInstruction {
-    //todo list accounts
-    //0
-    InitiateGame(InitGameParams),
-    //1
-    InitiateRound,
-    //2
+    /// Ix0 - Initializes a new version of Fomo3D.
+    /// Accounts expected:
+    /// 0 `[s]` Game creator's personal account.  
+    /// 1 `[w]` Game state PDA. Uninitialized.
+    /// 2 `[]` Token account for community share. Initialized.    
+    /// 3 `[]` Token account for p3d share. Initialized.    
+    /// 4 `[]` Token mint account. Initialized.    
+    /// 5 `[]` SystemProgram account.    
+    InitializeGame(InitGameParams),
+    /// Ix1 - Initializes a new round of Fomo3D.
+    /// Accounts expected:
+    /// 0 `[s]` Funder account to pay any associated fees.
+    /// 1 `[w]` Game state PDA. Initialized.
+    /// 2 `[w]` Current round state PDA. Uninitialized.
+    /// 3 `[w]` Token account for the current round's money pot. Uninitialized.
+    /// 4 `[]` Token mint account. Initialized.
+    /// 5 `[]` Rent account.
+    /// 6 `[]` SystemProgram account.
+    /// 7 `[]` TokenProgram account.
+    /// The next two are passed if the round is not the 1st round for current program version:
+    /// 8 `[w]` (optional) Previous round state PDA. Initialized.
+    /// 9 `[w]` (optional) Token account for the previous round's money pot. Initialized.
+    InitializeRound,
+    /// Ix2 - Purchase a number of keys to participate in the game.
+    /// Accounts expected:
+    /// 0 `[s]` Player's personal account.
+    /// 1 `[]` Game state PDA. Initialized.
+    /// 2 `[w]` Round state PDA. Initialized.
+    /// 3 `[w]` Player-round state PDA. Un/Initialized.
+    /// 4 `[w]` Token account for the round's money pot. Initialized.
+    /// 5 `[w]` Player's token account. Initialized.
+    /// 6 `[]` SystemProgram account.
+    /// 7 `[]` TokenProgram account.
+    /// The next two are passed if the user wants to credit an existing/new affiliate.
+    /// 8 `[w]` Affiliate-round state PDA. Un/Initialized.
+    /// 9 `[]` Affiliate owner's account.
     PurchaseKeys(PurchaseKeysParams),
-    //3
+    /// Ix3 - Withdraw any accumulated Tokens in player's name.
+    /// 0 `[s]` Player's personal account.
+    /// 1 `[]` Game state PDA. Initialized.
+    /// 2 `[]` Round state PDA. Initialized.
+    /// 3 `[w]` Player-round state PDA. Initialized.
+    /// 4 `[w]` Token account for the round's money pot. Initialized.
+    /// 5 `[w]` Player's token account. Initialized.
+    /// 6 `[]` SystemProgram account.
+    /// 7 `[]` TokenProgram account.
     WithdrawSol(WithdrawParams),
-    //4
+    /// Ix4 - End the current game's round. Can be run by anyone, not just the creator.
+    /// 0 `[]` Game state PDA. Initialized.
+    /// 1 `[w]` Round state PDA. Initialized.
+    /// 2 `[w]` Winner-round state PDA. Initialized.
     EndRound,
-    //5
+    /// Ix5 - Withdraw community rewards. Can be run by whoever controls the community token wallet.
+    /// 0 `[]` Game state PDA. Initialized.
+    /// 1 `[w]` Round state PDA. Initialized.
+    /// 2 `[w]` Token account for the round's money pot. Initialized.
+    /// 3 `[w]` Community's token account. Initialized.
+    /// 4 `[s]` Community wallet owner.
+    /// 5 `[]` TokenProgram account.
     WithdrawCommunityRewards(WithdrawParams),
-    //6
+    /// Ix6 - Withdraw p3d rewards.
+    /// (!) Unimplemented - see explanation in processor.
     WithdrawP3DRewards(WithdrawParams),
 }
 

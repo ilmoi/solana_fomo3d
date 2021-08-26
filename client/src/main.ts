@@ -19,7 +19,9 @@ import {
     PlayerRoundState,
     playerRoundStateSchema,
     roundSchema,
-    RoundState, SolByTeam, solByTeamSchema,
+    RoundState,
+    SolByTeam,
+    solByTeamSchema,
 } from "./layout";
 
 // ============================================================================= globals & consts
@@ -259,7 +261,7 @@ export async function purchaseKeys(
     //keys
     let keys = [
         {pubkey: buyer.publicKey, isSigner: true, isWritable: false},
-        {pubkey: gameState, isSigner: false, isWritable: true},
+        {pubkey: gameState, isSigner: false, isWritable: false},
         {pubkey: roundState, isSigner: false, isWritable: true},
         {pubkey: playerState, isSigner: false, isWritable: true},
         {pubkey: wSolPot, isSigner: false, isWritable: true},
@@ -354,13 +356,9 @@ export async function withdrawCom() {
 // ============================================================================= play
 
 async function play() {
-    // prepareTestEnv();
-    // await getConnection();
-    // await initGame();
-    // await initGame();
-    // await getGameState();
-
-    // await initRound();
+    await prepareTestEnv();
+    await initGame();
+    await initRound(1);
     // await getRoundState();
 
     // await purchaseKeys();

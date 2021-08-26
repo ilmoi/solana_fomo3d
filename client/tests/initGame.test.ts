@@ -34,6 +34,8 @@ describe('init game', () => {
     it('fails to init twice', async () => {
         await prepareTestEnv();
         await initGame();
-        await expect(initGame()).rejects.toThrow("custom program error: 0x9");
+        //in theory expecting an AlreadyExists error (0x9),
+        // but because we're now passing an intialized PDA, the ownership check (0x8) fails first
+        await expect(initGame()).rejects.toThrow("custom program error: 0x8");
     })
 })

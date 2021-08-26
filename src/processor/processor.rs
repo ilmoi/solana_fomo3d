@@ -11,7 +11,9 @@ use solana_program::{
 
 use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
-use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
+use crate::processor::util::{
+    account_exists, calc_new_delay, round_ended, verify_account_ownership, Empty, Owners,
+};
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::GameError,
@@ -45,11 +47,11 @@ impl Processor {
     ) -> ProgramResult {
         let instruction = GameInstruction::try_from_slice(data)?;
         match instruction {
-            GameInstruction::InitiateGame(game_params) => {
+            GameInstruction::InitializeGame(game_params) => {
                 msg!("init game");
                 Self::process_initialize_game(program_id, accounts, game_params)
             }
-            GameInstruction::InitiateRound => {
+            GameInstruction::InitializeRound => {
                 msg!("init round");
                 Self::process_initialize_round(program_id, accounts)
             }
@@ -88,6 +90,16 @@ impl Processor {
         let p3d_wallet_info = next_account_info(account_info_iter)?;
         let mint_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
+        let expected_owners = [
+            //todo is it reasonable to assume that the game creator's account is owned by sys prog?
+            Owners::SystemProgram,
+            Owners::SystemProgram,
+            Owners::TokenProgram,
+            Owners::TokenProgram,
+            Owners::TokenProgram,
+            Owners::NativeLoader,
+        ];
+        verify_account_ownership(accounts, &expected_owners)?;
 
         let InitGameParams {
             version,
@@ -136,7 +148,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
     ) -> ProgramResult {
-        let account_info_iter = &mut accounts.iter();
+        let account_info_iter = &mut accounts.iter().peekable();
         let funder_info = next_account_info(account_info_iter)?;
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
@@ -145,6 +157,21 @@ impl Processor {
         let rent_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
+        let mut expected_owners = vec![
+            Owners::SystemProgram,
+            Owners::Other(*program_id),
+            Owners::SystemProgram,
+            Owners::SystemProgram,
+            Owners::TokenProgram,
+            Owners::Sysvar,
+            Owners::NativeLoader,
+            Owners::BPFLoader,
+        ];
+        if account_info_iter.peek().is_some() {
+            expected_owners.push(Owners::Other(*program_id));
+            expected_owners.push(Owners::TokenProgram);
+        }
+        verify_account_ownership(accounts, &expected_owners)?;
 
         if account_exists(round_state_info) {
             return Err(GameError::AlreadyInitialized.into());
@@ -264,6 +291,35 @@ impl Processor {
         let player_token_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
+        let mut affiliate_round_state_info = None;
+        let mut affiliate_owner_info = None;
+        let mut expected_owners = vec![
+            Owners::SystemProgram,
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::TokenProgram,
+            Owners::TokenProgram,
+            Owners::NativeLoader,
+            Owners::BPFLoader,
+        ];
+        //change the owner if not yet initialized
+        if !account_exists(player_round_state_info) {
+            expected_owners[3] = Owners::SystemProgram;
+        }
+        if account_info_iter.peek().is_some() {
+            //retrieve the accounts
+            affiliate_round_state_info = Some(next_account_info(account_info_iter)?);
+            affiliate_owner_info = Some(next_account_info(account_info_iter)?);
+            //push the expected owners
+            expected_owners.push(Owners::Other(*program_id));
+            expected_owners.push(Owners::SystemProgram);
+            //change the owner if not yet initialized
+            if !account_exists(affiliate_round_state_info.unwrap()) {
+                expected_owners[8] = Owners::SystemProgram;
+            }
+        }
+        verify_account_ownership(accounts, &expected_owners)?;
 
         let PurchaseKeysParams {
             mut sol_to_be_added,
@@ -421,22 +477,20 @@ impl Processor {
         let mut f3d_share = 0;
 
         //if player has an affiliate listed, they MUST pass another account
-        if player_round_state.has_affiliate_listed() && account_info_iter.peek().is_none() {
+        if player_round_state.has_affiliate_listed() && affiliate_round_state_info.is_none() {
             return Err(GameError::MissingAccount.into());
         }
 
         //however there is a case where they don't have an affiliate but want to add one -
         //this is why we do the check again
-        if account_info_iter.peek().is_some() {
+        if affiliate_round_state_info.is_some() && affiliate_owner_info.is_some() {
             //doesn't matter if this the old or the new affiliate. It's the one that will be credited
             //and listed on player's profile (below)
-            let affiliate_round_state_info = next_account_info(account_info_iter)?;
-            let affiliate_owner_info = next_account_info(account_info_iter)?;
             let mut affiliate_round_state = deserialize_or_create_player_round_state(
-                affiliate_round_state_info,
+                affiliate_round_state_info.unwrap(),
                 player_info,
                 system_program_info,
-                affiliate_owner_info.key,
+                affiliate_owner_info.unwrap().key,
                 game_state.round_id,
                 game_state.version,
                 program_id,
@@ -444,9 +498,10 @@ impl Processor {
             affiliate_round_state
                 .accum_aff
                 .try_self_add(affiliate_share)?;
-            affiliate_round_state.serialize(&mut *affiliate_round_state_info.data.borrow_mut())?;
+            affiliate_round_state
+                .serialize(&mut *affiliate_round_state_info.unwrap().data.borrow_mut())?;
             //update the affiliate key going forward (may or may not have changed)
-            player_round_state.last_affiliate_pk = *affiliate_owner_info.key;
+            player_round_state.last_affiliate_pk = *affiliate_owner_info.unwrap().key;
         } else {
             p3d_share.try_self_add(affiliate_share)?;
             affiliate_share = 0;
@@ -534,6 +589,17 @@ impl Processor {
         let player_token_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
+        let expected_owners = [
+            Owners::SystemProgram,
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::TokenProgram,
+            Owners::TokenProgram,
+            Owners::NativeLoader,
+            Owners::BPFLoader,
+        ];
+        verify_account_ownership(accounts, &expected_owners)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -624,6 +690,12 @@ impl Processor {
         let game_state_info = next_account_info(account_info_iter)?;
         let round_state_info = next_account_info(account_info_iter)?;
         let winner_state_info = next_account_info(account_info_iter)?;
+        let expected_owners = [
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+        ];
+        verify_account_ownership(accounts, &expected_owners)?;
 
         let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
         let mut round_state = deserialize_round_state(
@@ -727,6 +799,15 @@ impl Processor {
         let com_wallet_info = next_account_info(account_info_iter)?;
         let com_wallet_owner_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
+        let expected_owners = [
+            Owners::Other(*program_id),
+            Owners::Other(*program_id),
+            Owners::TokenProgram,
+            Owners::TokenProgram,
+            Owners::SystemProgram,
+            Owners::BPFLoader,
+        ];
+        verify_account_ownership(accounts, &expected_owners)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -804,3 +885,4 @@ impl Processor {
 // - comments (make them consistent)
 // - msg!()
 // - unused fns/vars
+// - 2x readmes

@@ -56,11 +56,13 @@ describe('init round', () => {
 })
 
 describe('init round', () => {
-    it('fails to init the same round twice', async () => {
+    it('refuses to init the same round twice', async () => {
         await prepareTestEnv();
         await initGame();
         await initRound(1);
-        await expect(initRound(1)).rejects.toThrow("custom program error: 0x9");
+        //in theory expecting an AlreadyExists error (0x9),
+        // but because we're now passing an intialized PDA, the ownership check (0x8) fails first
+        await expect(initRound(1)).rejects.toThrow("custom program error: 0x8");
     })
 })
 
