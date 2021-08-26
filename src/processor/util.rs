@@ -63,7 +63,6 @@ impl Empty for Pubkey {
 
 pub fn time_is_out(round_state: &RoundState) -> Result<bool, ProgramError> {
     let clock = Clock::get()?;
-    //todo temp
     msg!(
         "round time left (s): {}",
         round_state.end_time - clock.unix_timestamp
@@ -76,13 +75,6 @@ pub fn time_is_out(round_state: &RoundState) -> Result<bool, ProgramError> {
 /// - 24h from now
 pub fn calc_new_delay(new_keys: u128, game_state: &GameState) -> Result<u128, ProgramError> {
     let delay_based_on_keys = new_keys.try_mul(game_state.round_inc_time_per_key as u128)?;
-    //todo temp
-    msg!("max delay: {}", game_state.round_max_time);
-    msg!("delay from keys: {}", delay_based_on_keys);
-    msg!(
-        "delay added: {}",
-        delay_based_on_keys.min(game_state.round_max_time as u128)
-    );
     Ok(delay_based_on_keys.min(game_state.round_max_time as u128))
 }
 

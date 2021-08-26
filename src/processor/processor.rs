@@ -239,14 +239,6 @@ impl Processor {
                 .accum_next_round_share
                 .try_sub(previous_round_state.withdrawn_next_round)?;
 
-            //todo temp
-            msg!(
-                "MOVE: {}, {}, {}",
-                move_over_amount,
-                previous_round_state.accum_next_round_share,
-                previous_round_state.withdrawn_next_round
-            );
-
             spl_token_transfer(TokenTransferParams {
                 source: previous_round_pot_info.clone(),
                 destination: pot_info.clone(),
@@ -548,14 +540,6 @@ impl Processor {
             .try_sub(f3d_share)?;
         assert!(still_in_play >= sol_to_be_added.try_mul(pot_percent)?.try_floor_div(100)?);
 
-        msg!("{}", community_share); //todo temp
-        msg!("{}", airdrop_share);
-        msg!("{}", next_round_share);
-        msg!("{}", affiliate_share);
-        msg!("{}", p3d_share);
-        msg!("{}", f3d_share);
-        msg!("{}", still_in_play);
-
         // --------------------------------------- serialize round state
         //update leader
         round_state.lead_player_pk = *player_pk;
@@ -685,11 +669,6 @@ impl Processor {
             .try_add(aff_to_withdraw)?
             .try_add(f3d_to_withdraw)?;
 
-        msg!("{}", winnings_to_withdraw); //todo temp
-        msg!("{}", aff_to_withdraw);
-        msg!("{}", f3d_to_withdraw);
-        msg!("{}", total_to_withdraw);
-
         // --------------------------------------- transfer tokens
         if total_to_withdraw == 0 {
             return Ok(());
@@ -789,12 +768,6 @@ impl Processor {
             .try_sub(p3d_share)?
             .try_sub(next_round_share)?;
         assert!(grand_prize >= to_be_divided.try_mul(48)?.try_floor_div(100)?);
-
-        msg!("{}", to_be_divided); //todo temp
-        msg!("{}", community_share);
-        msg!("{}", f3d_share);
-        msg!("{}", p3d_share);
-        msg!("{}", next_round_share);
 
         // --------------------------------------- assign funds to winner
         player_round_state
@@ -913,13 +886,3 @@ impl Processor {
         )
     }
 }
-
-//todo security
-// - look at remaining security items in notion
-//todo clean up in the end
-// - comments (make them consistent)
-// - msg!()
-// - unused fns/vars
-// - 2x readmes - add this link https://fomo3d.hostedwiki.co/pages/Fomo3D%20Explained
-// - imports
-// precise file goes

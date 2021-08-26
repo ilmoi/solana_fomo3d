@@ -102,7 +102,7 @@ export async function changeGlobalPlayerState(player: Keypair) {
         [Buffer.from(`pr${player.publicKey.toBase58().substring(0, 12)}${round}${version}`)],
         FOMO_PROG_ID,
     )
-    console.log('global bplayer state now:', playerState.toBase58());
+    console.log('global player state now:', playerState.toBase58());
 }
 
 // ============================================================================= state getters
@@ -366,31 +366,3 @@ export async function withdrawCom() {
     await prepareAndSendTx([withdrawComIx], [bobKp]);
 }
 
-// ============================================================================= play
-
-async function play() {
-    await prepareTestEnv();
-    await initGame();
-    await initRound(1);
-    // await getRoundState();
-
-    // await purchaseKeys();
-    // await getPlayerRoundState();
-
-    // await purchaseKeys(true);
-    // await withdrawSol();
-    // await setTimeout(async () => {
-    //     await endRound();
-    //     await withdrawSol();
-    // }, 5000);
-    // await withdrawCom();
-}
-
-// TODO THIS MUST BE OFF TO RUN TESTS
-// play()
-
-//todo finish test-side serialization, then split tests by instruction
-//todo remember to test things like deposits and withdrawals by calling fns AT LEAST TWICE
-//todo remember to test optional params: 1)affiliate during deposit, 2)previous round during round init
-//todo clean up console.logs in the end
-//todo remove private keys

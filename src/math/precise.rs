@@ -1,3 +1,5 @@
+//! copied from https://github.com/solana-labs/solana-program-library/blob/40b7690a58af87f221c8ec6c6237907c57abc331/token-swap/program/src/curve/math.rs
+
 use uint::construct_uint;
 
 construct_uint! {
