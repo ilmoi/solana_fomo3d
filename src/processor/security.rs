@@ -73,3 +73,10 @@ pub fn verify_is_signer(account: &AccountInfo) -> ProgramResult {
     }
     Ok(())
 }
+
+pub fn verify_token_program(token_program: &AccountInfo) -> ProgramResult {
+    if token_program.key != &spl_token::id() {
+        return Err(GameError::InvalidTokenProgram.into());
+    }
+    Ok(())
+}

@@ -12,7 +12,7 @@ use solana_program::{
 use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
 use crate::processor::security::{
-    verify_account_ownership, verify_is_signer, verify_round_state, Owners,
+    verify_account_ownership, verify_is_signer, verify_round_state, verify_token_program, Owners,
 };
 use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
@@ -174,6 +174,7 @@ impl Processor {
             expected_owners.push(Owners::TokenProgram);
         }
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_token_program(token_program_info)?;
 
         if account_exists(round_state_info) {
             return Err(GameError::AlreadyInitialized.into());
@@ -323,6 +324,7 @@ impl Processor {
         }
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(player_info)?;
+        verify_token_program(token_program_info)?;
 
         let PurchaseKeysParams {
             mut sol_to_be_added,
@@ -600,6 +602,7 @@ impl Processor {
         ];
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(player_info)?;
+        verify_token_program(token_program_info)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -805,6 +808,7 @@ impl Processor {
         ];
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(com_wallet_owner_info)?;
+        verify_token_program(token_program_info)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 

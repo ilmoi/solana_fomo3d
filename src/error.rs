@@ -40,6 +40,8 @@ pub enum GameError {
     NotYetEnded, //d
     #[error("Previous round has already ended")]
     AlreadyEnded, //e
+    #[error("Token program passed is invalid")]
+    InvalidTokenProgram, //f
 }
 
 // --------------------------------------- so that fn return type is happy
@@ -87,6 +89,7 @@ impl PrintProgramError for GameError {
             GameError::WrongAccount => msg!("Wrong account has been passed"),
             GameError::NotYetEnded => msg!("Previous round hasn't yet ended"),
             GameError::AlreadyEnded => msg!("Previous round has already ended"),
+            GameError::InvalidTokenProgram => msg!("Token program passed is invalid"),
         }
     }
 }

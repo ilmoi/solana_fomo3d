@@ -235,6 +235,7 @@ fn create_pda_with_space<'a>(
 
     //create a PDA and allocate space inside of it at the same time
     //can only be done from INSIDE the program
+    //based on https://github.com/solana-labs/solana-program-library/blob/7c8e65292a6ebc90de54468c665e30bc590c513a/feature-proposal/program/src/processor.rs#L148-L163
     invoke_signed(
         &create_account(
             &funder_info.key,
@@ -244,9 +245,6 @@ fn create_pda_with_space<'a>(
             owner,
         ),
         &[
-            //yes need all three
-            //https://github.com/solana-labs/solana-program-library/blob/7c8e65292a6ebc90de54468c665e30bc590c513a/feature-proposal/program/src/processor.rs#L148-L163
-            //(!) need to do .clone() even though we did .clone() to pass in the args - otherwise get an error around access violation
             funder_info.clone(),
             pda_info.clone(),
             system_program_info.clone(),
