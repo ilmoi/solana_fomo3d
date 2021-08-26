@@ -1,11 +1,14 @@
 import {
-    aliceKp, bobKp,
-    endRound, getRoundState,
+    aliceKp,
+    bobKp,
+    endRound,
+    getRoundState,
     initGame,
     initRound,
     prepareTestEnv,
     purchaseKeys,
-    wSolAliceAcc, wSolBobAcc
+    wSolAliceAcc,
+    wSolBobAcc
 } from "../src/main";
 import {assert, waitForRoundtoEnd} from "./utils";
 import BN from "bn.js";

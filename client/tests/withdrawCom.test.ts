@@ -1,7 +1,8 @@
 import {
     aliceKp,
     bobKp,
-    endRound, getPlayerRoundState, getRoundState,
+    endRound,
+    getRoundState,
     getTokenAccBalance,
     initGame,
     initRound,

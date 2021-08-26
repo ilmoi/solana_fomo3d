@@ -9,7 +9,6 @@ import {
     prepareTestEnv,
     purchaseKeys,
     ROUND_INIT_TIME,
-    withdrawSol,
     wSolAliceAcc,
     wSolBobAcc,
     wSolPot

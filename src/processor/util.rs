@@ -1,16 +1,16 @@
+use std::str::FromStr;
+
 use solana_program::{
     account_info::AccountInfo, clock::Clock, msg, program_error::ProgramError, pubkey::Pubkey,
+    sysvar::Sysvar,
 };
 
-use crate::error::GameError;
-use crate::state::GameState;
 use crate::{
+    error::GameError,
     math::common::{TryDiv, TryMul},
     processor::rng::pseudo_rng,
-    state::RoundState,
+    state::{GameState, RoundState},
 };
-use solana_program::sysvar::Sysvar;
-use std::str::FromStr;
 
 /// The original math for this is unnecessary convoluted and we decided to ignore it.
 /// Ultimately this comes down to a simple equation: (player's keys / total keys) * total f3d earnings.

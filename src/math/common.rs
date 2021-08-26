@@ -1,7 +1,6 @@
 use std::convert::TryFrom;
 
-use solana_program::entrypoint::ProgramResult;
-use solana_program::program_error::ProgramError;
+use solana_program::{entrypoint::ProgramResult, program_error::ProgramError};
 use spl_math::approximations::sqrt;
 
 use crate::{error::GameError, math::precise::CheckedCeilDiv};

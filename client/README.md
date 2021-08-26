@@ -11,16 +11,17 @@ solana-keygen new
 ```shell
 solana config set --url localhost
 ```
-4. build & deploy the program
+4. start a local validator node
+```shell
+solana-test-validator --reset 
+```
+5. build & deploy the program
 ```
 cargo build-bpf
 solana program deploy path/to/fomo3d.so
 ```
-5. start a local validator node
-```shell
-solana-test-validator --reset 
-```
-6. fund the accounts that are used for testing (alternative would be to use `airdrop` but it sometimes breaks on localnet)
+6. Update the program id in the `main.ts` file (line 29)
+7. fund the accounts that are used for testing (alternative would be to use `airdrop` but it sometimes breaks on localnet)
 ```shell
 # fund game creator's account
 solana transfer AFe99p6byLxYfEV9E1nNumSeKdtgXm2HL5Gy5dN6icj9 10 --allow-unfunded-recipient
@@ -29,9 +30,11 @@ solana transfer Ga8HG4NzgcYkegLoJDmxJemEU1brewF2XZLNHd6B4wJ7 10 --allow-unfunded
 # fund bob's account
 solana transfer BxiV2mYXbBma1Kv7kxnn7cdM93oFHL4BhT9G23hiFfUP 10 --allow-unfunded-recipient 
 ```
-7. run the test suite
+8. install `node`, `npm`, `yarn`
+8. run the test suite
 ```
 cd client
+yarn
 yarn test
 ```
 

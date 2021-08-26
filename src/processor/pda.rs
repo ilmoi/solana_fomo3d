@@ -11,17 +11,16 @@ use solana_program::{
 };
 use spl_token::state::Account;
 
-use crate::processor::security::VerifyType;
-use crate::state::StateType;
 use crate::{
     error::GameError,
     processor::{
+        security::VerifyType,
         spl_token::{spl_token_init_account, TokenInitializeAccountParams},
         util::account_exists,
     },
     state::{
-        GameState, PlayerRoundState, RoundState, GAME_STATE_SIZE, PLAYER_ROUND_STATE_SIZE,
-        ROUND_STATE_SIZE,
+        GameState, PlayerRoundState, RoundState, StateType, GAME_STATE_SIZE,
+        PLAYER_ROUND_STATE_SIZE, ROUND_STATE_SIZE,
     },
 };
 
