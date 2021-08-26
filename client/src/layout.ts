@@ -3,6 +3,7 @@ import BN from "bn.js";
 // --------------------------------------- game state
 
 export class GameState {
+    TYPE = 0;
     round_id = new BN(0);
     round_init_time = new BN(0);
     round_inc_time_per_key = new BN(0);
@@ -21,6 +22,7 @@ export class GameState {
 export const gameSchema = new Map([[GameState, {
     kind: 'struct',
     fields: [
+        ['TYPE', 'u8'],
         ['round_id', 'u64'],
         ['round_init_time', 'u64'], //borsh doesn't understand i64 - only u64
         ['round_inc_time_per_key', 'u64'],
@@ -57,6 +59,7 @@ export const solByTeamSchema = new Map([[SolByTeam, {
 }]])
 
 export class RoundState {
+    TYPE = 0;
     round_id = new BN(0);
     lead_player_pk = new Array(32);
     lead_player_team = 0;
@@ -90,6 +93,7 @@ export class RoundState {
 export const roundSchema = new Map([[RoundState, {
     kind: 'struct',
     fields: [
+        ['TYPE', 'u8'],
         ['round_id', 'u64'],
         ['lead_player_pk', [32]],
         ['lead_player_team', 'u8'],
@@ -117,6 +121,7 @@ export const roundSchema = new Map([[RoundState, {
 // --------------------------------------- player state
 
 export class PlayerRoundState {
+    TYPE = 0;
     player_pk = new Uint8Array(32);
     round_id = new BN(0);
     last_affiliate_pk = new Uint8Array(32);
@@ -136,6 +141,7 @@ export class PlayerRoundState {
 export const playerRoundStateSchema = new Map([[PlayerRoundState, {
     kind: 'struct',
     fields: [
+        ['TYPE', 'u8'],
         ['player_pk', [32]],
         ['round_id', 'u64'],
         ['last_affiliate_pk', [32]],

@@ -5,11 +5,20 @@ use crate::processor::util::is_zero;
 
 pub type UnixTimestamp = i64;
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+pub enum StateType {
+    GameStateTypeV1,
+    RoundStateTypeV1,
+    PlayerRoundStateTypeV1,
+}
+
 // --------------------------------------- game state
 
-pub const GAME_STATE_SIZE: usize = (8 * 5) + (32 * 4);
+pub const GAME_STATE_SIZE: usize = 1 + (8 * 5) + (32 * 4);
+#[allow(non_snake_case)]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct GameState {
+    pub TYPE: StateType,
     pub round_id: u64,
     pub round_init_time: i64,
     pub round_inc_time_per_key: i64,
@@ -73,9 +82,11 @@ pub struct SolByTeam {
 // --------------------------------------- round
 
 pub const ROUND_STATE_SIZE: usize =
-    8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (13 * 16) + 8;
+    1 + 8 + 32 + TEAM_SIZE + (8 * 2) + 1 + SOL_BY_TEAM_SIZE + (13 * 16) + 8;
+#[allow(non_snake_case)]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct RoundState {
+    pub TYPE: StateType,
     pub round_id: u64,
     //lead player
     pub lead_player_pk: Pubkey,
@@ -107,9 +118,11 @@ pub struct RoundState {
 
 // --------------------------------------- player x round
 
-pub const PLAYER_ROUND_STATE_SIZE: usize = 32 + 8 + 32 + (7 * 16);
+pub const PLAYER_ROUND_STATE_SIZE: usize = 1 + 32 + 8 + 32 + (7 * 16);
+#[allow(non_snake_case)]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct PlayerRoundState {
+    pub TYPE: StateType,
     pub player_pk: Pubkey,
     pub round_id: u64,
     pub last_affiliate_pk: Pubkey, //last person to refer the player

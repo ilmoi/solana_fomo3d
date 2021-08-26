@@ -12,10 +12,10 @@ use solana_program::{
 use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
 use crate::processor::security::{
-    verify_account_ownership, verify_is_signer, verify_round_state, verify_token_program, Owners,
+    verify_account_ownership, verify_is_signer, verify_round_state, verify_token_program, Owner,
 };
 use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
-use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
+use crate::state::{StateType, BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::GameError,
     instruction::{GameInstruction, PurchaseKeysParams, WithdrawParams},
@@ -93,12 +93,12 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let expected_owners = [
             //todo is it reasonable to assume that the game creator's account is owned by sys prog?
-            Owners::SystemProgram,
-            Owners::SystemProgram,
-            Owners::TokenProgram,
-            Owners::TokenProgram,
-            Owners::TokenProgram,
-            Owners::NativeLoader,
+            Owner::SystemProgram,
+            Owner::SystemProgram,
+            Owner::TokenProgram,
+            Owner::TokenProgram,
+            Owner::TokenProgram,
+            Owner::NativeLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(game_creator_info)?;
@@ -141,6 +141,7 @@ impl Processor {
         game_state.game_creator = *game_creator_info.key;
         game_state.community_wallet = *com_wallet_info.key;
         game_state.p3d_wallet = *p3d_wallet_info.key;
+        game_state.TYPE = StateType::GameStateTypeV1;
         game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
         Ok(())
@@ -160,18 +161,18 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
         let mut expected_owners = vec![
-            Owners::SystemProgram,
-            Owners::Other(*program_id),
-            Owners::SystemProgram,
-            Owners::SystemProgram,
-            Owners::TokenProgram,
-            Owners::Sysvar,
-            Owners::NativeLoader,
-            Owners::BPFLoader,
+            Owner::SystemProgram,
+            Owner::Other(*program_id),
+            Owner::SystemProgram,
+            Owner::SystemProgram,
+            Owner::TokenProgram,
+            Owner::Sysvar,
+            Owner::NativeLoader,
+            Owner::BPFLoader,
         ];
         if account_info_iter.peek().is_some() {
-            expected_owners.push(Owners::Other(*program_id));
-            expected_owners.push(Owners::TokenProgram);
+            expected_owners.push(Owner::Other(*program_id));
+            expected_owners.push(Owner::TokenProgram);
         }
         verify_account_ownership(accounts, &expected_owners)?;
         verify_token_program(token_program_info)?;
@@ -274,6 +275,7 @@ impl Processor {
         //to calculate end time add the initial time window specified during game initialization
         round_state.end_time = round_state.start_time.try_add(game_state.round_init_time)?;
         round_state.ended = false;
+        round_state.TYPE = StateType::RoundStateTypeV1;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
         game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
@@ -297,29 +299,29 @@ impl Processor {
         let mut affiliate_round_state_info = None;
         let mut affiliate_owner_info = None;
         let mut expected_owners = vec![
-            Owners::SystemProgram,
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::TokenProgram,
-            Owners::TokenProgram,
-            Owners::NativeLoader,
-            Owners::BPFLoader,
+            Owner::SystemProgram,
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::TokenProgram,
+            Owner::TokenProgram,
+            Owner::NativeLoader,
+            Owner::BPFLoader,
         ];
         //change the owner if not yet initialized
         if !account_exists(player_round_state_info) {
-            expected_owners[3] = Owners::SystemProgram;
+            expected_owners[3] = Owner::SystemProgram;
         }
         if account_info_iter.peek().is_some() {
             //retrieve the accounts
             affiliate_round_state_info = Some(next_account_info(account_info_iter)?);
             affiliate_owner_info = Some(next_account_info(account_info_iter)?);
             //push the expected owners
-            expected_owners.push(Owners::Other(*program_id));
-            expected_owners.push(Owners::SystemProgram);
+            expected_owners.push(Owner::Other(*program_id));
+            expected_owners.push(Owner::SystemProgram);
             //change the owner if not yet initialized
             if !account_exists(affiliate_round_state_info.unwrap()) {
-                expected_owners[8] = Owners::SystemProgram;
+                expected_owners[8] = Owner::SystemProgram;
             }
         }
         verify_account_ownership(accounts, &expected_owners)?;
@@ -591,14 +593,14 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
         let expected_owners = [
-            Owners::SystemProgram,
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::TokenProgram,
-            Owners::TokenProgram,
-            Owners::NativeLoader,
-            Owners::BPFLoader,
+            Owner::SystemProgram,
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::TokenProgram,
+            Owner::TokenProgram,
+            Owner::NativeLoader,
+            Owner::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(player_info)?;
@@ -690,9 +692,9 @@ impl Processor {
         let round_state_info = next_account_info(account_info_iter)?;
         let winner_state_info = next_account_info(account_info_iter)?;
         let expected_owners = [
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
         ];
         verify_account_ownership(accounts, &expected_owners)?;
 
@@ -799,12 +801,12 @@ impl Processor {
         let com_wallet_owner_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
         let expected_owners = [
-            Owners::Other(*program_id),
-            Owners::Other(*program_id),
-            Owners::TokenProgram,
-            Owners::TokenProgram,
-            Owners::SystemProgram,
-            Owners::BPFLoader,
+            Owner::Other(*program_id),
+            Owner::Other(*program_id),
+            Owner::TokenProgram,
+            Owner::TokenProgram,
+            Owner::SystemProgram,
+            Owner::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
         verify_is_signer(com_wallet_owner_info)?;
@@ -883,5 +885,5 @@ impl Processor {
 // - comments (make them consistent)
 // - msg!()
 // - unused fns/vars
-// - 2x readmes
+// - 2x readmes - add this link https://fomo3d.hostedwiki.co/pages/Fomo3D%20Explained
 // - imports

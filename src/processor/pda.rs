@@ -11,6 +11,8 @@ use solana_program::{
 };
 use spl_token::state::Account;
 
+use crate::processor::security::VerifyType;
+use crate::state::StateType;
 use crate::{
     error::GameError,
     processor::{
@@ -31,6 +33,7 @@ pub fn deserialize_game_state<'a>(
     program_id: &Pubkey,
 ) -> Result<(GameState, String, u8), ProgramError> {
     let game_state: GameState = GameState::try_from_slice(&game_state_info.data.borrow_mut())?;
+    game_state.verify_type()?;
     let game_state_seed = format!("{}{}", GAME_STATE_SEED, game_state.version);
     let game_state_bump =
         verify_pda_matches(game_state_seed.as_bytes(), program_id, game_state_info)?;
@@ -66,10 +69,11 @@ pub fn deserialize_round_state<'a>(
     version: u64,
     program_id: &Pubkey,
 ) -> Result<RoundState, ProgramError> {
+    let round_state: RoundState = RoundState::try_from_slice(&round_state_info.data.borrow_mut())?;
+    round_state.verify_type()?;
     let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, version);
     verify_pda_matches(round_state_seed.as_bytes(), program_id, round_state_info)?;
-    RoundState::try_from_slice(&round_state_info.data.borrow_mut())
-        .map_err(|_| GameError::UnpackingFailure.into())
+    Ok(round_state)
 }
 
 /// Builds seed + verifies + creates pda
@@ -103,6 +107,9 @@ pub fn deserialize_player_round_state<'a>(
     version: u64,
     program_id: &Pubkey,
 ) -> Result<PlayerRoundState, ProgramError> {
+    let player_round_state: PlayerRoundState =
+        PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())?;
+    player_round_state.verify_type()?;
     let player_round_state_seed = format!(
         "{}{}{}{}",
         PLAYER_ROUND_STATE_SEED,      //4
@@ -115,8 +122,7 @@ pub fn deserialize_player_round_state<'a>(
         program_id,
         player_round_state_info,
     )?;
-    PlayerRoundState::try_from_slice(&player_round_state_info.data.borrow_mut())
-        .map_err(|_| GameError::UnpackingFailure.into())
+    Ok(player_round_state)
 }
 
 /// Builds seed + verifies + deserializes/creates pda if missing
@@ -159,6 +165,7 @@ pub fn deserialize_or_create_player_round_state<'a>(
         //initially set the player's public key and round id
         player_round_state.player_pk = *player_pk;
         player_round_state.round_id = round_id;
+        player_round_state.TYPE = StateType::PlayerRoundStateTypeV1;
         Ok(player_round_state)
     }
 }

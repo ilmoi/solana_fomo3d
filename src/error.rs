@@ -42,6 +42,8 @@ pub enum GameError {
     AlreadyEnded, //e
     #[error("Token program passed is invalid")]
     InvalidTokenProgram, //f
+    #[error("Passed state account if of the wrong state type")]
+    InvalidStateType, //10
 }
 
 // --------------------------------------- so that fn return type is happy
@@ -90,6 +92,7 @@ impl PrintProgramError for GameError {
             GameError::NotYetEnded => msg!("Previous round hasn't yet ended"),
             GameError::AlreadyEnded => msg!("Previous round has already ended"),
             GameError::InvalidTokenProgram => msg!("Token program passed is invalid"),
+            GameError::InvalidStateType => msg!("Passed state account if of the wrong state type"),
         }
     }
 }

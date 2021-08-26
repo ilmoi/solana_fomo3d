@@ -1,10 +1,13 @@
 use crate::error::GameError;
 use crate::math::common::TryAdd;
 use crate::processor::util::load_pk;
-use crate::state::RoundState;
+use crate::state::StateType::{GameStateTypeV1, PlayerRoundStateTypeV1, RoundStateTypeV1};
+use crate::state::{GameState, PlayerRoundState, RoundState};
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::{msg, pubkey::Pubkey};
+
+// --------------------------------------- state
 
 /// Checks whether actual funds in the pot equate to total of all the parties' shares.
 /// NOTE: considered comparing vs actual money in pot but problems arise:
@@ -26,7 +29,37 @@ pub fn verify_round_state(round_state: &RoundState) -> ProgramResult {
     Ok(())
 }
 
-pub enum Owners {
+pub trait VerifyType {
+    fn verify_type(&self) -> ProgramResult;
+}
+impl VerifyType for GameState {
+    fn verify_type(&self) -> ProgramResult {
+        if self.TYPE != GameStateTypeV1 {
+            return Err(GameError::InvalidStateType.into());
+        }
+        Ok(())
+    }
+}
+impl VerifyType for RoundState {
+    fn verify_type(&self) -> ProgramResult {
+        if self.TYPE != RoundStateTypeV1 {
+            return Err(GameError::InvalidStateType.into());
+        }
+        Ok(())
+    }
+}
+impl VerifyType for PlayerRoundState {
+    fn verify_type(&self) -> ProgramResult {
+        if self.TYPE != PlayerRoundStateTypeV1 {
+            return Err(GameError::InvalidStateType.into());
+        }
+        Ok(())
+    }
+}
+
+// --------------------------------------- ownership
+
+pub enum Owner {
     SystemProgram,
     TokenProgram,
     NativeLoader,
@@ -38,17 +71,17 @@ pub enum Owners {
 
 pub fn verify_account_ownership(
     accounts: &[AccountInfo],
-    expected_owners: &[Owners],
+    expected_owners: &[Owner],
 ) -> ProgramResult {
     for (i, account) in accounts.iter().enumerate() {
         let expected_owner = match &expected_owners[i] {
-            Owners::SystemProgram => solana_program::system_program::id(),
-            Owners::TokenProgram => spl_token::id(),
-            Owners::NativeLoader => load_pk("NativeLoader1111111111111111111111111111111")?,
-            Owners::BPFLoader => load_pk("BPFLoader2111111111111111111111111111111111")?,
-            Owners::Sysvar => load_pk("Sysvar1111111111111111111111111111111111111")?,
-            Owners::Other(pk) => *pk,
-            Owners::None => {
+            Owner::SystemProgram => solana_program::system_program::id(),
+            Owner::TokenProgram => spl_token::id(),
+            Owner::NativeLoader => load_pk("NativeLoader1111111111111111111111111111111")?,
+            Owner::BPFLoader => load_pk("BPFLoader2111111111111111111111111111111111")?,
+            Owner::Sysvar => load_pk("Sysvar1111111111111111111111111111111111111")?,
+            Owner::Other(pk) => *pk,
+            Owner::None => {
                 //no need to check owner for this account
                 continue;
             }
@@ -67,12 +100,16 @@ pub fn verify_account_ownership(
     Ok(())
 }
 
+// --------------------------------------- signature
+
 pub fn verify_is_signer(account: &AccountInfo) -> ProgramResult {
     if !account.is_signer {
         return Err(GameError::MissingSignature.into());
     }
     Ok(())
 }
+
+// --------------------------------------- CPI
 
 pub fn verify_token_program(token_program: &AccountInfo) -> ProgramResult {
     if token_program.key != &spl_token::id() {
