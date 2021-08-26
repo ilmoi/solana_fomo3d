@@ -50,7 +50,7 @@ export let round = 1;
 //actual recommended numbers are 1h / 30s / 24h
 export const ROUND_INIT_TIME = 2;
 export const ROUND_INC_TIME_PER_KEY = 0;
-export const ROUND_MAX_TIME = 24*60*60;
+export const ROUND_MAX_TIME = 24 * 60 * 60;
 
 // ============================================================================= helpers
 
@@ -94,6 +94,15 @@ async function createAndFundTokenAccount(mint: Token, owner: PublicKey, mintAmou
         await mint.mintTo(tokenUserPk, gameCreatorKp.publicKey, [], mintAmount);
     }
     return tokenUserPk;
+}
+
+export async function changeGlobalPlayerState(player: Keypair) {
+    let bump;
+    [playerState, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(`pr${player.publicKey.toBase58().substring(0, 12)}${round}${version}`)],
+        FOMO_PROG_ID,
+    )
+    console.log('global bplayer state now:', playerState.toBase58());
 }
 
 // ============================================================================= state getters
@@ -167,10 +176,14 @@ export async function initGame(
             .toArray('le', 8),
         ...new BN(roundMaxTime ? roundMaxTime : ROUND_MAX_TIME)
             .toArray('le', 8),
-        ));
+    ));
     const initIx = new TransactionInstruction({
         keys: [
-            {pubkey: gameCreatorKp.publicKey, isSigner: true, isWritable: false},
+            {
+                pubkey: gameCreatorKp.publicKey,
+                isSigner: true,
+                isWritable: false
+            },
             {pubkey: gameState, isSigner: false, isWritable: true},
             {pubkey: wSolComAcc, isSigner: false, isWritable: false},
             {pubkey: wSolP3dAcc, isSigner: false, isWritable: false},

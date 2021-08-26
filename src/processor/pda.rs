@@ -146,7 +146,8 @@ pub fn deserialize_or_create_player_round_state<'a>(
     } else {
         let player_round_state_seed = format!(
             "{}{}{}{}",
-            PLAYER_ROUND_STATE_SEED,      //4
+            PLAYER_ROUND_STATE_SEED, //4
+            //todo is 12 characters secure enough? how long would this take to grind?
             &player_pk.to_string()[..12], //12 - max seed len 32
             round_id,                     //8
             version                       //8

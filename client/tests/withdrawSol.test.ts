@@ -1,6 +1,6 @@
 import {
     aliceKp,
-    bobKp,
+    bobKp, changeGlobalPlayerState,
     endRound,
     getPlayerRoundState,
     getTokenAccBalance,
@@ -120,11 +120,28 @@ describe('withdraw sol', () => {
     })
 })
 
+describe('withdraw sol', () => {
+    it('fails to withdraw if the player hasnt deposited anything', async () => {
+        await prepareTestEnv();
+        await initGame();
+        await initRound(1);
+        //alice deposits - so there is money in the game
+        await purchaseKeys(aliceKp, wSolAliceAcc, 1);
+        //bob tries to withdraw without having deposited anything
+        await changeGlobalPlayerState(bobKp);
+        await withdrawSol(bobKp, wSolBobAcc);
+        await expect(
+            verifyPotAndAccBalances(wSolBobAcc, 0, 1, 'floor', 100)
+        ).rejects.toThrow("custom program error: 0x8");
+    })
+})
+
 async function verifyPotAndAccBalances(
     playerAcc: PublicKey,
     solMoved: number,
     multiple: number,
     roundDir: string = 'floor',
+    startingBalance: number = 99,
 ) {
     let potBalance = await getTokenAccBalance(wSolPot);
     let playerAccBalance = await getTokenAccBalance(playerAcc);
@@ -133,7 +150,7 @@ async function verifyPotAndAccBalances(
     } else {
         assert(new BN(potBalance.amount).eq(new BN(Math.ceil((multiple - solMoved) * LAMPORTS_PER_SOL))));
     }
-    assert(new BN(playerAccBalance.amount).eq(new BN((99 + solMoved) * LAMPORTS_PER_SOL)));
+    assert(new BN(playerAccBalance.amount).eq(new BN((startingBalance + solMoved) * LAMPORTS_PER_SOL)));
 }
 
 async function verifyPlayerWithdrawals(

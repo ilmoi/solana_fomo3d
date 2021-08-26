@@ -61,7 +61,7 @@ impl Empty for Pubkey {
     }
 }
 
-pub fn round_ended(round_state: &RoundState) -> Result<bool, ProgramError> {
+pub fn time_is_out(round_state: &RoundState) -> Result<bool, ProgramError> {
     let clock = Clock::get()?;
     //todo temp
     msg!(

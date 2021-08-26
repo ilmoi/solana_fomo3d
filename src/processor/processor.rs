@@ -12,9 +12,10 @@ use solana_program::{
 use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
 use crate::processor::security::{
-    verify_account_ownership, verify_is_signer, verify_round_state, verify_token_program, Owner,
+    verify_account_count, verify_account_ownership, verify_is_signer, verify_rent_exempt,
+    verify_round_state, verify_token_program, Owner,
 };
-use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
+use crate::processor::util::{account_exists, calc_new_delay, time_is_out, Empty};
 use crate::state::{StateType, BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::GameError,
@@ -101,7 +102,9 @@ impl Processor {
             Owner::NativeLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 6, 6)?;
         verify_is_signer(game_creator_info)?;
+        verify_rent_exempt(&[com_wallet_info, p3d_wallet_info, mint_info])?;
 
         let InitGameParams {
             version,
@@ -175,7 +178,9 @@ impl Processor {
             expected_owners.push(Owner::TokenProgram);
         }
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 8, 10)?;
         verify_token_program(token_program_info)?;
+        verify_rent_exempt(&[game_state_info, mint_info])?;
 
         if account_exists(round_state_info) {
             return Err(GameError::AlreadyInitialized.into());
@@ -293,7 +298,7 @@ impl Processor {
         let round_state_info = next_account_info(account_info_iter)?;
         let player_round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
-        let player_token_info = next_account_info(account_info_iter)?;
+        let player_token_acc_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
         let mut affiliate_round_state_info = None;
@@ -325,8 +330,15 @@ impl Processor {
             }
         }
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 8, 10)?;
         verify_is_signer(player_info)?;
         verify_token_program(token_program_info)?;
+        verify_rent_exempt(&[
+            game_state_info,
+            round_state_info,
+            pot_info,
+            player_token_acc_info,
+        ])?;
 
         let PurchaseKeysParams {
             mut sol_to_be_added,
@@ -341,8 +353,8 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
-        //ensure the round hasn't ended
-        if round_ended(&round_state)? {
+        //ensure the round hasn't ended yet
+        if time_is_out(&round_state)? {
             return Err(GameError::AlreadyEnded.into());
         }
         deserialize_pot(
@@ -361,6 +373,12 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
+        //this is not strictly necessary, but won't hurt
+        let player_token_acc = Account::unpack(&player_token_acc_info.data.borrow())?;
+        if player_token_acc.owner != *player_info.key {
+            return Err(GameError::InvalidOwner.into());
+        }
+        //no need to verify mint - the transfer below will simply fail if player acc's mint != pot mint
 
         // --------------------------------------- calc variables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
@@ -427,7 +445,7 @@ impl Processor {
 
         // --------------------------------------- transfer funds to pot
         spl_token_transfer(TokenTransferParams {
-            source: player_token_info.clone(),
+            source: player_token_acc_info.clone(),
             destination: pot_info.clone(),
             authority: player_info.clone(), //this also enforces player_info to be a signer
             token_program: token_program_info.clone(),
@@ -589,7 +607,7 @@ impl Processor {
         let round_state_info = next_account_info(account_info_iter)?;
         let player_round_state_info = next_account_info(account_info_iter)?;
         let pot_info = next_account_info(account_info_iter)?;
-        let player_token_info = next_account_info(account_info_iter)?;
+        let player_token_acc_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
         let token_program_info = next_account_info(account_info_iter)?;
         let expected_owners = [
@@ -603,8 +621,16 @@ impl Processor {
             Owner::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 8, 8)?;
         verify_is_signer(player_info)?;
         verify_token_program(token_program_info)?;
+        verify_rent_exempt(&[
+            game_state_info,
+            round_state_info,
+            player_round_state_info,
+            pot_info,
+            player_token_acc_info,
+        ])?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -632,6 +658,12 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
+        //verify the destination token account actually belongs to the player
+        let player_token_acc = Account::unpack(&player_token_acc_info.data.borrow())?;
+        if player_token_acc.owner != *player_info.key {
+            return Err(GameError::InvalidOwner.into());
+        }
+        //no need to verify mint - the transfer below will simply fail if player acc's mint != pot mint
 
         // --------------------------------------- calc withdrawal amounts
         // No, you don't need to wait for round end to withdraw winnings.
@@ -664,7 +696,7 @@ impl Processor {
         }
         spl_token_transfer(TokenTransferParams {
             source: pot_info.clone(),
-            destination: player_token_info.clone(),
+            destination: player_token_acc_info.clone(),
             amount: total_to_withdraw.try_cast()?,
             authority: game_state_info.clone(),
             authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
@@ -697,6 +729,8 @@ impl Processor {
             Owner::Other(*program_id),
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 3, 3)?;
+        verify_rent_exempt(&[game_state_info, round_state_info, winner_state_info])?;
 
         let (game_state, _, _) = deserialize_game_state(game_state_info, program_id)?;
         let mut round_state = deserialize_round_state(
@@ -706,7 +740,7 @@ impl Processor {
             program_id,
         )?;
 
-        if !round_ended(&round_state)? {
+        if !time_is_out(&round_state)? {
             return Err(GameError::NotYetEnded.into());
         }
 
@@ -809,8 +843,10 @@ impl Processor {
             Owner::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_account_count(accounts, 6, 6)?;
         verify_is_signer(com_wallet_owner_info)?;
         verify_token_program(token_program_info)?;
+        verify_rent_exempt(&[game_state_info, round_state_info, pot_info, com_wallet_info])?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -879,11 +915,11 @@ impl Processor {
 }
 
 //todo security
-// - https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
-// - look at checks in token lending
+// - look at remaining security items in notion
 //todo clean up in the end
 // - comments (make them consistent)
 // - msg!()
 // - unused fns/vars
 // - 2x readmes - add this link https://fomo3d.hostedwiki.co/pages/Fomo3D%20Explained
 // - imports
+// precise file goes

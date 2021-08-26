@@ -5,6 +5,8 @@ use crate::state::StateType::{GameStateTypeV1, PlayerRoundStateTypeV1, RoundStat
 use crate::state::{GameState, PlayerRoundState, RoundState};
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
+use solana_program::rent::Rent;
+use solana_program::sysvar::Sysvar;
 use solana_program::{msg, pubkey::Pubkey};
 
 // --------------------------------------- state
@@ -57,7 +59,7 @@ impl VerifyType for PlayerRoundState {
     }
 }
 
-// --------------------------------------- ownership
+// --------------------------------------- accounts
 
 pub enum Owner {
     SystemProgram,
@@ -100,11 +102,26 @@ pub fn verify_account_ownership(
     Ok(())
 }
 
-// --------------------------------------- signature
-
 pub fn verify_is_signer(account: &AccountInfo) -> ProgramResult {
     if !account.is_signer {
         return Err(GameError::MissingSignature.into());
+    }
+    Ok(())
+}
+
+pub fn verify_account_count(accounts: &[AccountInfo], min: usize, max: usize) -> ProgramResult {
+    if accounts.len() < min || accounts.len() > max {
+        return Err(GameError::InvalidAccountCount.into());
+    }
+    Ok(())
+}
+
+pub fn verify_rent_exempt(accounts: &[&AccountInfo]) -> ProgramResult {
+    let rent = Rent::get()?;
+    for account_info in accounts {
+        if !rent.is_exempt(account_info.lamports(), account_info.data_len()) {
+            return Err(GameError::NotRentExempt.into());
+        }
     }
     Ok(())
 }

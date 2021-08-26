@@ -44,6 +44,10 @@ pub enum GameError {
     InvalidTokenProgram, //f
     #[error("Passed state account if of the wrong state type")]
     InvalidStateType, //10
+    #[error("Too few or too many accounts have been passed")]
+    InvalidAccountCount, //11
+    #[error("Passed account is not rent exempt")]
+    NotRentExempt, //12
 }
 
 // --------------------------------------- so that fn return type is happy
@@ -93,6 +97,8 @@ impl PrintProgramError for GameError {
             GameError::AlreadyEnded => msg!("Previous round has already ended"),
             GameError::InvalidTokenProgram => msg!("Token program passed is invalid"),
             GameError::InvalidStateType => msg!("Passed state account if of the wrong state type"),
+            GameError::InvalidAccountCount => msg!("Too few or too many accounts have been passed"),
+            GameError::NotRentExempt => msg!("Passed account is not rent exempt"),
         }
     }
 }
