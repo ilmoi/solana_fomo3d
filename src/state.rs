@@ -7,27 +7,20 @@ pub type UnixTimestamp = i64;
 
 // --------------------------------------- game state
 
-pub const GAME_STATE_SIZE: usize = (8 * 4) + 1 + (32 * 4);
+pub const GAME_STATE_SIZE: usize = (8 * 5) + (32 * 4);
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct GameState {
-    pub round_id: u64,        //round id number / total rounds that have happened
-    pub round_init_time: i64, //in seconds, wait time before a new round begins, after previous ended
-    pub round_inc_time: i64,  //in seconds, how much each key purchase increases the time
-    pub round_max_time: i64,  //in seconds, max timer time
-    pub version: u8,
+    pub round_id: u64,
+    pub round_init_time: i64,
+    pub round_inc_time_per_key: i64,
+    pub round_max_time: i64,
+    pub version: u64,
     pub mint: Pubkey,
     //privileged accounts
     pub game_creator: Pubkey,
     pub community_wallet: Pubkey,
     pub p3d_wallet: Pubkey,
 }
-
-// pub const ROUND_INIT_TIME: i64 = 1 * 60 * 60; //1h
-pub const ROUND_INIT_TIME: i64 = 3; //todo temp
-
-// pub const ROUND_INC_TIME: i64 = 30; //30s
-pub const ROUND_INC_TIME_PER_KEY: i64 = 0; //todo temp
-pub const ROUND_MAX_TIME: i64 = 24 * 60 * 60; //24h
 
 // --------------------------------------- fees & teams
 

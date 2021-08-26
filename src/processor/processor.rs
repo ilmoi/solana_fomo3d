@@ -9,8 +9,9 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
+use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
-use crate::processor::util::{account_exists, calc_new_delay, round_ended};
+use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::GameError,
@@ -28,8 +29,7 @@ use crate::{
         util::{airdrop_winner, calculate_player_f3d_share, verify_round_state},
     },
     state::{
-        Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, ROUND_INC_TIME_PER_KEY,
-        ROUND_INIT_TIME, ROUND_MAX_TIME, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
+        Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
     },
 };
 use spl_token::solana_program::program_pack::Pack;
@@ -45,9 +45,9 @@ impl Processor {
     ) -> ProgramResult {
         let instruction = GameInstruction::try_from_slice(data)?;
         match instruction {
-            GameInstruction::InitiateGame(version) => {
+            GameInstruction::InitiateGame(game_params) => {
                 msg!("init game");
-                Self::process_initialize_game(program_id, accounts, version)
+                Self::process_initialize_game(program_id, accounts, game_params)
             }
             GameInstruction::InitiateRound => {
                 msg!("init round");
@@ -79,7 +79,7 @@ impl Processor {
     pub fn process_initialize_game(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
-        version: u8,
+        game_params: InitGameParams,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let game_creator_info = next_account_info(account_info_iter)?;
@@ -88,6 +88,13 @@ impl Processor {
         let p3d_wallet_info = next_account_info(account_info_iter)?;
         let mint_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
+
+        let InitGameParams {
+            version,
+            round_init_time,
+            round_inc_time_per_key,
+            round_max_time,
+        } = game_params;
 
         if account_exists(game_state_info) {
             return Err(GameError::AlreadyInitialized.into());
@@ -112,9 +119,9 @@ impl Processor {
         )?;
 
         game_state.round_id = 0; //will be incremented to 1 when 1st round initialized
-        game_state.round_init_time = ROUND_INIT_TIME;
-        game_state.round_inc_time = ROUND_INC_TIME_PER_KEY;
-        game_state.round_max_time = ROUND_MAX_TIME;
+        game_state.round_init_time = round_init_time;
+        game_state.round_inc_time_per_key = round_inc_time_per_key;
+        game_state.round_max_time = round_max_time;
         game_state.version = version;
         game_state.mint = *mint_info.key;
         game_state.game_creator = *game_creator_info.key;
@@ -156,7 +163,7 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
-        let pot = create_pot(
+        create_pot(
             pot_info,
             game_state_info,
             funder_info,
@@ -191,10 +198,19 @@ impl Processor {
             if !previous_round_state.ended {
                 return Err(GameError::NotYetEnded.into());
             }
-            //move tokens from previous round to this one
+            //move tokens from previous round to current
             let move_over_amount = previous_round_state
                 .accum_next_round_share
                 .try_sub(previous_round_state.withdrawn_next_round)?;
+
+            //todo temp
+            msg!(
+                "MOVE: {}, {}, {}",
+                move_over_amount,
+                previous_round_state.accum_next_round_share,
+                previous_round_state.withdrawn_next_round
+            );
+
             spl_token_transfer(TokenTransferParams {
                 source: previous_round_pot_info.clone(),
                 destination: pot_info.clone(),
@@ -203,6 +219,16 @@ impl Processor {
                 authority_signer_seeds: &[game_state_seed.as_bytes(), &[game_state_bump]],
                 token_program: token_program_info.clone(),
             })?;
+            //update current round state & verify amount matches what's in pot
+            round_state.accum_sol_pot.try_self_add(move_over_amount)?;
+            let pot_after_transfer = deserialize_pot(
+                pot_info,
+                game_state_info,
+                game_state.round_id,
+                game_state.version,
+                program_id,
+            )?;
+            assert_eq!(pot_after_transfer.amount as u128, round_state.accum_sol_pot);
             //update previous round state
             previous_round_state
                 .withdrawn_next_round
@@ -214,13 +240,10 @@ impl Processor {
         let clock = Clock::get()?;
         // all attributes not mentioned automatically start at 0.
         round_state.round_id = game_state.round_id;
-        //timings
-        //the logic is: once you init a round - it starts immediately with a 1h window before the end
-        //the original game had a number of different game modes, the above was chosen for simplicity
         round_state.start_time = clock.unix_timestamp;
-        round_state.end_time = round_state.start_time.try_add(ROUND_INIT_TIME)?;
+        //to calculate end time add the initial time window specified during game initialization
+        round_state.end_time = round_state.start_time.try_add(game_state.round_init_time)?;
         round_state.ended = false;
-        round_state.accum_sol_pot = pot.amount as u128;
         round_state.serialize(&mut *round_state_info.data.borrow_mut())?;
         game_state.serialize(&mut *game_state_info.data.borrow_mut())?;
 
@@ -379,7 +402,7 @@ impl Processor {
                 //send money
                 round_state.accum_airdrop_share.try_self_sub(prize)?;
                 player_round_state.accum_winnings.try_self_add(prize)?;
-                //restart the lottery
+                //reset the lottery
                 round_state.airdrop_tracker = 0;
             }
         }
@@ -421,8 +444,9 @@ impl Processor {
             affiliate_round_state
                 .accum_aff
                 .try_self_add(affiliate_share)?;
+            affiliate_round_state.serialize(&mut *affiliate_round_state_info.data.borrow_mut())?;
             //update the affiliate key going forward (may or may not have changed)
-            player_round_state.last_affiliate_pk = *affiliate_round_state_info.key;
+            player_round_state.last_affiliate_pk = *affiliate_owner_info.key;
         } else {
             p3d_share.try_self_add(affiliate_share)?;
             affiliate_share = 0;
@@ -463,7 +487,7 @@ impl Processor {
         //update timer
         round_state
             .end_time
-            .try_self_add(calc_new_delay(new_keys)? as i64)?;
+            .try_self_add(calc_new_delay(new_keys, &game_state)? as i64)?;
         //update totals
         round_state.accum_keys.try_self_add(new_keys)?;
         round_state.accum_sol_pot.try_self_add(sol_to_be_added)?;
@@ -623,6 +647,9 @@ impl Processor {
 
         // --------------------------------------- calc shares
         let to_be_divided = round_state.still_in_play;
+        if to_be_divided == 0 || round_state.lead_player_pk.is_empty() {
+            return Ok(());
+        }
 
         let pot_split = match round_state.lead_player_team {
             Team::Whale => WHALE_POT_SPLIT,
@@ -774,6 +801,6 @@ impl Processor {
 // - https://blog.neodyme.io/posts/solana_common_pitfalls#solana-account-confusions
 // - look at checks in token lending
 //todo clean up in the end
-// - comments
+// - comments (make them consistent)
 // - msg!()
 // - unused fns/vars

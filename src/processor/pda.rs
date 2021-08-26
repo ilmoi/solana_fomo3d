@@ -42,7 +42,7 @@ pub fn create_game_state<'a>(
     game_state_info: &AccountInfo<'a>,
     funder_info: &AccountInfo<'a>,
     system_program_info: &AccountInfo<'a>,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<GameState, ProgramError> {
     let game_state_seed = format!("{}{}", GAME_STATE_SEED, version);
@@ -63,7 +63,7 @@ pub fn create_game_state<'a>(
 pub fn deserialize_round_state<'a>(
     round_state_info: &AccountInfo<'a>,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<RoundState, ProgramError> {
     let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, version);
@@ -78,7 +78,7 @@ pub fn create_round_state<'a>(
     funder_info: &AccountInfo<'a>,
     system_program_info: &AccountInfo<'a>,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<RoundState, ProgramError> {
     let round_state_seed = format!("{}{}{}", ROUND_STATE_SEED, round_id, version);
@@ -100,15 +100,15 @@ pub fn deserialize_player_round_state<'a>(
     player_round_state_info: &AccountInfo<'a>,
     player_pk: &Pubkey,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<PlayerRoundState, ProgramError> {
     let player_round_state_seed = format!(
         "{}{}{}{}",
-        PLAYER_ROUND_STATE_SEED,      //2
-        &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
+        PLAYER_ROUND_STATE_SEED,      //4
+        &player_pk.to_string()[..12], //12 - max seed len 32
         round_id,                     //8
-        version                       //1
+        version                       //8
     );
     verify_pda_matches(
         player_round_state_seed.as_bytes(),
@@ -126,7 +126,7 @@ pub fn deserialize_or_create_player_round_state<'a>(
     system_program_info: &AccountInfo<'a>,
     player_pk: &Pubkey,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<PlayerRoundState, ProgramError> {
     if account_exists(player_round_state_info) {
@@ -140,10 +140,10 @@ pub fn deserialize_or_create_player_round_state<'a>(
     } else {
         let player_round_state_seed = format!(
             "{}{}{}{}",
-            PLAYER_ROUND_STATE_SEED,      //2
-            &player_pk.to_string()[..16], //16 take half the key - should be hard enough to fake
+            PLAYER_ROUND_STATE_SEED,      //4
+            &player_pk.to_string()[..12], //12 - max seed len 32
             round_id,                     //8
-            version                       //1
+            version                       //8
         );
         create_pda_with_space(
             player_round_state_seed.as_bytes(),
@@ -168,7 +168,7 @@ pub fn deserialize_pot<'a>(
     pot_info: &AccountInfo<'a>,
     game_state_info: &AccountInfo<'a>,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<Account, ProgramError> {
     let pot = Account::unpack(&pot_info.data.borrow_mut())?;
@@ -190,7 +190,7 @@ pub fn create_pot<'a>(
     system_program_info: &AccountInfo<'a>,
     token_program_info: &AccountInfo<'a>,
     round_id: u64,
-    version: u8,
+    version: u64,
     program_id: &Pubkey,
 ) -> Result<Account, ProgramError> {
     let pot_seed = format!("{}{}{}", POT_SEED, round_id, version);

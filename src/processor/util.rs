@@ -4,7 +4,7 @@ use solana_program::{
 };
 
 use crate::math::common::TryAdd;
-use crate::state::ROUND_INC_TIME_PER_KEY;
+use crate::state::GameState;
 use crate::{
     math::common::{TryDiv, TryMul},
     processor::rng::pseudo_rng,
@@ -72,6 +72,15 @@ pub fn is_zero(buf: &[u8]) -> bool {
         && aligned.iter().all(|&x| x == 0)
 }
 
+pub trait Empty {
+    fn is_empty(&self) -> bool;
+}
+impl Empty for Pubkey {
+    fn is_empty(&self) -> bool {
+        is_zero(&self.to_bytes()[..])
+    }
+}
+
 pub fn round_ended(round_state: &RoundState) -> Result<bool, ProgramError> {
     let clock = Clock::get()?;
     //todo temp
@@ -85,9 +94,14 @@ pub fn round_ended(round_state: &RoundState) -> Result<bool, ProgramError> {
 /// New added delay = minimum of:
 /// - number of keys purchased * time per key
 /// - 24h from now
-pub fn calc_new_delay(new_keys: u128) -> Result<u128, ProgramError> {
-    let clock = Clock::get()?;
-    let day_from_now = clock.unix_timestamp.try_add(24 * 60 * 60)?;
-    let delay_based_on_keys = new_keys.try_mul(ROUND_INC_TIME_PER_KEY as u128)?;
-    Ok(delay_based_on_keys.min(day_from_now as u128))
+pub fn calc_new_delay(new_keys: u128, game_state: &GameState) -> Result<u128, ProgramError> {
+    let delay_based_on_keys = new_keys.try_mul(game_state.round_inc_time_per_key as u128)?;
+    //todo temp
+    msg!("max delay: {}", game_state.round_max_time);
+    msg!("delay from keys: {}", delay_based_on_keys);
+    msg!(
+        "delay added: {}",
+        delay_based_on_keys.min(game_state.round_max_time as u128)
+    );
+    Ok(delay_based_on_keys.min(game_state.round_max_time as u128))
 }

@@ -5,9 +5,9 @@ import BN from "bn.js";
 export class GameState {
     round_id = new BN(0);
     round_init_time = new BN(0);
-    round_inc_time = new BN(0);
+    round_inc_time_per_key = new BN(0);
     round_max_time = new BN(0);
-    version = 0
+    version = new BN(0);
     mint = new Uint8Array(32);
     game_creator = new Uint8Array(32);
     community_wallet = new Uint8Array(32);
@@ -23,9 +23,9 @@ export const gameSchema = new Map([[GameState, {
     fields: [
         ['round_id', 'u64'],
         ['round_init_time', 'u64'], //borsh doesn't understand i64 - only u64
-        ['round_inc_time', 'u64'],
+        ['round_inc_time_per_key', 'u64'],
         ['round_max_time', 'u64'],
-        ['version', 'u8'],
+        ['version', 'u64'],
         ['mint', [32]],
         ['game_creator', [32]],
         ['community_wallet', [32]],

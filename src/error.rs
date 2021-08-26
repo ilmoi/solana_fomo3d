@@ -9,47 +9,37 @@ use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, Error, FromPrimitive, PartialEq)]
 pub enum GameError {
-    //math
+    //NOTE: do not change error order - js tests depend on them
     #[error("General calculation failure due to overflow or underflow")]
-    CalculationFailure,
+    CalculationFailure, //0
     #[error("Conversion to u64 failed with an overflow or underflow")]
-    ConversionFailure,
+    ConversionFailure, //1
     #[error("Supplied amount is above threshold")]
-    AboveThreshold,
+    AboveThreshold, //2
     #[error("Supplied amount is below floor")]
-    BelowFloor,
-
-    //spl
+    BelowFloor, //3
     #[error("Failed to invoke the SPL Token Program")]
-    TokenProgramInvocationFailure,
+    TokenProgramInvocationFailure, //4
     #[error("Failed to match mint of provided token account")]
-    MintMatchFailure,
-
-    //pda/accounts
+    MintMatchFailure, //5
     #[error("Failed to unpack account")]
-    UnpackingFailure,
+    UnpackingFailure, //6
     #[error("Failed to match the provided PDA with that internally derived")]
-    PDAMatchFailure,
-
-    //general
+    PDAMatchFailure, //7
     #[error("Invalid owner passed")]
-    InvalidOwner,
+    InvalidOwner, //8
     #[error("Game/round account already initialized")]
-    AlreadyInitialized,
+    AlreadyInitialized, //9
     #[error("Missing an expected signature")]
-    MissingSignature,
+    MissingSignature, //a
     #[error("An additional account was expected")]
-    MissingAccount,
+    MissingAccount, //b
     #[error("Wrong account has been passed")]
-    WrongAccount,
-    // #[error("Invalid instruction")]
-    // InvalidInstruction,
-
-    //round
+    WrongAccount, //c
     #[error("Previous round hasn't yet ended")]
-    NotYetEnded,
+    NotYetEnded, //d
     #[error("Previous round has already ended")]
-    AlreadyEnded,
+    AlreadyEnded, //e
 }
 
 // --------------------------------------- so that fn return type is happy
@@ -74,7 +64,6 @@ impl PrintProgramError for GameError {
         E: 'static + std::error::Error + DecodeError<E> + PrintProgramError + FromPrimitive,
     {
         match self {
-            //math
             GameError::CalculationFailure => {
                 msg!("General calculation failure due to overflow or underflow")
             }
@@ -83,24 +72,19 @@ impl PrintProgramError for GameError {
             }
             GameError::AboveThreshold => msg!("Supplied amount is above threshold"),
             GameError::BelowFloor => msg!("Supplied amount is below floor"),
-            //spl
             GameError::TokenProgramInvocationFailure => {
                 msg!("Failed to invoke the SPL Token Program")
             }
             GameError::MintMatchFailure => msg!("Failed to match mint of provided token account"),
-            //pda/accounts
             GameError::UnpackingFailure => msg!("Failed to unpack account"),
             GameError::PDAMatchFailure => {
                 msg!("Failed to match the provided PDA with that internally derived")
             }
-            //general
             GameError::InvalidOwner => msg!("Invalid owner passed"),
             GameError::AlreadyInitialized => msg!("Game/round account already initialized"),
             GameError::MissingSignature => msg!("Missing an expected signature"),
             GameError::MissingAccount => msg!("An additional account was expected"),
             GameError::WrongAccount => msg!("Wrong account has been passed"),
-            // GameError::InvalidInstruction => msg!("Invalid instruction"),
-            //round
             GameError::NotYetEnded => msg!("Previous round hasn't yet ended"),
             GameError::AlreadyEnded => msg!("Previous round has already ended"),
         }

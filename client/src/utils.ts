@@ -1,12 +1,4 @@
 import {Account, Connection} from "@solana/web3.js";
-import fs from 'fs';
-
-export function assert(condition: boolean, message?: string) {
-    if (!condition) {
-        console.log(Error().stack + ':main.ts');
-        throw message || 'Assertion failed';
-    }
-}
 
 export async function newAccountWithLamports(
     connection: Connection,

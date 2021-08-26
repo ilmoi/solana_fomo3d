@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub enum GameInstruction {
     //todo list accounts
     //0
-    InitiateGame(u8),
+    InitiateGame(InitGameParams),
     //1
     InitiateRound,
     //2
@@ -17,6 +17,20 @@ pub enum GameInstruction {
     WithdrawCommunityRewards(WithdrawParams),
     //6
     WithdrawP3DRewards(WithdrawParams),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+pub struct InitGameParams {
+    pub version: u64,
+    //time (in seconds) for the initial window when a new round starts
+    //in original Fomo3D: 1h
+    pub round_init_time: i64,
+    //time (in seconds) by which each key purchase bumps round end time
+    //in original Fomo3D: 30s
+    pub round_inc_time_per_key: i64,
+    //time (in seconds) for max possible window
+    //in original Fomo3D: 24h
+    pub round_max_time: i64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]

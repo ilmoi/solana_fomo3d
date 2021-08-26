@@ -1,57 +1,56 @@
 import {Token, TOKEN_PROGRAM_ID} from "@solana/spl-token";
 import {
-    AccountInfo,
-    Connection, Keypair, LAMPORTS_PER_SOL,
-    PublicKey, sendAndConfirmTransaction,
-    Signer, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction,
+    Connection,
+    Keypair,
+    LAMPORTS_PER_SOL,
+    PublicKey,
+    sendAndConfirmTransaction,
+    Signer,
+    SystemProgram,
+    SYSVAR_RENT_PUBKEY,
+    Transaction,
     TransactionInstruction
 } from "@solana/web3.js";
 import BN from "bn.js";
 import * as borsh from 'borsh';
-import {assert} from "./utils";
-import fs from "fs";
 import {
     gameSchema,
-    GameState, PlayerRoundState, playerRoundStateSchema,
+    GameState,
+    PlayerRoundState,
+    playerRoundStateSchema,
     roundSchema,
-    RoundState, SolByTeam,
-    solByTeamSchema
+    RoundState, SolByTeam, solByTeamSchema,
 } from "./layout";
 
 // ============================================================================= globals & consts
-let connection: Connection;
-const FOMO_PROG_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
-const ownerKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([208, 175, 150, 242, 88, 34, 108, 88, 177, 16, 168, 75, 115, 181, 199, 242, 120, 4, 78, 75, 19, 227, 13, 215, 184, 108, 226, 53, 111, 149, 179, 84, 137, 121, 79, 1, 160, 223, 124, 241, 202, 203, 220, 237, 50, 242, 57, 158, 226, 207, 203, 188, 43, 28, 70, 110, 214, 234, 251, 15, 249, 157, 62, 80]));
-const aliceKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([201, 101, 147, 128, 138, 189, 70, 190, 202, 49, 28, 26, 32, 21, 104, 185, 191, 41, 20, 171, 3, 144, 4, 26, 169, 73, 180, 171, 71, 22, 48, 135, 231, 91, 179, 215, 3, 117, 187, 183, 96, 74, 154, 155, 197, 243, 114, 104, 20, 123, 105, 47, 181, 123, 171, 133, 73, 181, 102, 41, 236, 78, 210, 176]));
-const thirdPartyKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([177, 217, 193, 155, 63, 150, 164, 184, 81, 82, 121, 165, 202, 87, 86, 237, 218, 226, 212, 201, 167, 170, 149, 183, 59, 43, 155, 112, 189, 239, 231, 110, 162, 218, 184, 20, 108, 2, 92, 114, 203, 184, 223, 69, 137, 206, 102, 71, 162, 0, 127, 63, 170, 96, 137, 108, 228, 31, 181, 113, 57, 189, 30, 76]));
+export let connection: Connection;
+export const FOMO_PROG_ID = new PublicKey("2HEMUe2d8HFfCMoBARcP5HSoKB5RRSg8dvLG4TVh2fHB");
 
-let gameState: PublicKey;
-let roundState: PublicKey;
-let aliceRoundState: PublicKey;
+export const gameCreatorKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([208, 175, 150, 242, 88, 34, 108, 88, 177, 16, 168, 75, 115, 181, 199, 242, 120, 4, 78, 75, 19, 227, 13, 215, 184, 108, 226, 53, 111, 149, 179, 84, 137, 121, 79, 1, 160, 223, 124, 241, 202, 203, 220, 237, 50, 242, 57, 158, 226, 207, 203, 188, 43, 28, 70, 110, 214, 234, 251, 15, 249, 157, 62, 80]));
+export const aliceKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([201, 101, 147, 128, 138, 189, 70, 190, 202, 49, 28, 26, 32, 21, 104, 185, 191, 41, 20, 171, 3, 144, 4, 26, 169, 73, 180, 171, 71, 22, 48, 135, 231, 91, 179, 215, 3, 117, 187, 183, 96, 74, 154, 155, 197, 243, 114, 104, 20, 123, 105, 47, 181, 123, 171, 133, 73, 181, 102, 41, 236, 78, 210, 176]));
+export const bobKp: Keypair = Keypair.fromSecretKey(Uint8Array.from([177, 217, 193, 155, 63, 150, 164, 184, 81, 82, 121, 165, 202, 87, 86, 237, 218, 226, 212, 201, 167, 170, 149, 183, 59, 43, 155, 112, 189, 239, 231, 110, 162, 218, 184, 20, 108, 2, 92, 114, 203, 184, 223, 69, 137, 206, 102, 71, 162, 0, 127, 63, 170, 96, 137, 108, 228, 31, 181, 113, 57, 189, 30, 76]));
 
-let wSolMint: Token;
-let wSolAliceAcc: PublicKey;
-let wSolComAcc: PublicKey;
-let wSolP3dAcc: PublicKey;
-let wSolPot: PublicKey;
+export let gameState: PublicKey;
+export let roundState: PublicKey;
+export let playerState: PublicKey;
 
-let version: number;
-//todo later need to sub round<1> for automatic
-let round = 1;
+export let wSolMint: Token;
+export let wSolAliceAcc: PublicKey;
+export let wSolBobAcc: PublicKey;
+export let wSolComAcc: PublicKey;
+export let wSolP3dAcc: PublicKey;
+export let wSolPot: PublicKey;
+
+export let version: number;
+export let round = 1;
+
+//setting these low so that we can run tests
+//actual recommended numbers are 1h / 30s / 24h
+export const ROUND_INIT_TIME = 2;
+export const ROUND_INC_TIME_PER_KEY = 0;
+export const ROUND_MAX_TIME = 24*60*60;
 
 // ============================================================================= helpers
-
-function readAndUpdateVersion() {
-    const contents = fs.readFileSync('version.txt');
-    version = parseInt(contents.toString());
-    console.log('running version', version);
-    updateVersion();
-}
-
-function updateVersion() {
-    fs.writeFileSync('version.txt', `${version + 1}`);
-    console.log('file updated')
-}
 
 async function getConnection() {
     const url = 'http://localhost:8899';
@@ -69,7 +68,7 @@ async function prepareAndSendTx(instructions: TransactionInstruction[], signers:
 async function generateCreateAccIx(newAccountPubkey: PublicKey, space: number): Promise<TransactionInstruction> {
     return SystemProgram.createAccount({
         programId: FOMO_PROG_ID,
-        fromPubkey: ownerKp.publicKey,
+        fromPubkey: gameCreatorKp.publicKey,
         newAccountPubkey,
         space,
         lamports: await connection.getMinimumBalanceForRentExemption(space),
@@ -79,8 +78,8 @@ async function generateCreateAccIx(newAccountPubkey: PublicKey, space: number): 
 async function createMintAccount(): Promise<Token> {
     return Token.createMint(
         connection,
-        ownerKp,
-        ownerKp.publicKey,
+        gameCreatorKp,
+        gameCreatorKp.publicKey,
         null,
         0,
         TOKEN_PROGRAM_ID,
@@ -90,36 +89,64 @@ async function createMintAccount(): Promise<Token> {
 async function createAndFundTokenAccount(mint: Token, owner: PublicKey, mintAmount: number = 0): Promise<PublicKey> {
     const tokenUserPk = await mint.createAccount(owner);
     if (mintAmount > 0) {
-        await mint.mintTo(tokenUserPk, ownerKp.publicKey, [], mintAmount);
+        await mint.mintTo(tokenUserPk, gameCreatorKp.publicKey, [], mintAmount);
     }
     return tokenUserPk;
 }
 
-async function getGameState() {
+// ============================================================================= state getters
+
+export async function getGameState() {
     let gameStateInfo = await connection.getAccountInfo(gameState);
     let gameStateData = borsh.deserialize(gameSchema, GameState, gameStateInfo?.data as Buffer);
     console.log(gameStateData);
+    return gameStateData
 }
 
-async function getRoundState() {
+export async function getRoundState() {
     let roundStateInfo = await connection.getAccountInfo(roundState);
     let roundStateData = borsh.deserialize(roundSchema, RoundState, roundStateInfo?.data as Buffer);
-    let solByTeam = borsh.deserialize(solByTeamSchema, SolByTeam, roundStateData.accum_sol_by_team as any as Buffer);
+    let solByTeamData = borsh.deserialize(solByTeamSchema, SolByTeam, roundStateData.accum_sol_by_team as any as Buffer);
+    roundStateData.accum_sol_by_team = solByTeamData;
     console.log(roundStateData);
-    console.log(solByTeam);
-
-    //todo was told to check here - https://github.com/solana-labs/dapp-scaffold/blob/main/src/utils/layout.ts
+    return roundStateData
 }
 
-async function getPlayerRoundState() {
-    let playerRoundStateInfo = await connection.getAccountInfo(aliceRoundState);
+export async function getPlayerRoundState() {
+    let playerRoundStateInfo = await connection.getAccountInfo(playerState);
     let playerRoundStateData = borsh.deserialize(playerRoundStateSchema, PlayerRoundState, playerRoundStateInfo?.data as Buffer);
     console.log(playerRoundStateData);
+    return playerRoundStateData
+}
+
+export async function getTokenAccBalance(acc: PublicKey) {
+    let balance = (await connection.getTokenAccountBalance(acc)).value;
+    console.log(`${acc} has`, balance.uiAmount as any / LAMPORTS_PER_SOL, 'sol');
+    return balance;
 }
 
 // ============================================================================= core
 
-async function initGame() {
+export async function prepareTestEnv() {
+    console.log('// --------------------------------------- configure env')
+    version = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+    console.log(`version is ${version}`);
+    await getConnection();
+    //create a fake Wrapped SOL mint
+    wSolMint = await createMintAccount();
+    //assigning community & p3d accounts to bob - pretend he's the leader of both
+    wSolComAcc = await createAndFundTokenAccount(wSolMint, bobKp.publicKey);
+    wSolP3dAcc = await createAndFundTokenAccount(wSolMint, bobKp.publicKey);
+    //funding alice and bob with 100 fake Wrapped SOL
+    wSolAliceAcc = await createAndFundTokenAccount(wSolMint, aliceKp.publicKey, 100 * LAMPORTS_PER_SOL);
+    wSolBobAcc = await createAndFundTokenAccount(wSolMint, bobKp.publicKey, 100 * LAMPORTS_PER_SOL);
+}
+
+export async function initGame(
+    roundInitTime?: number,
+    roundIncTimePerKey?: number,
+    roundMaxTime?: number,
+) {
     console.log('// --------------------------------------- init game')
     //game state pda
     let stateBumpSeed;
@@ -129,17 +156,19 @@ async function initGame() {
     )
     console.log('game state pda is:', gameState.toBase58());
 
-    //configure all the token accounts
-    wSolMint = await createMintAccount();
-    wSolComAcc = await createAndFundTokenAccount(wSolMint, thirdPartyKp.publicKey);
-    wSolP3dAcc = await createAndFundTokenAccount(wSolMint, thirdPartyKp.publicKey);
-    wSolAliceAcc = await createAndFundTokenAccount(wSolMint, aliceKp.publicKey, 100 * LAMPORTS_PER_SOL);
-
     //init game ix
-    const data = Buffer.from(Uint8Array.of(0, ...new BN(version).toArray('le', 1)));
+    const data = Buffer.from(Uint8Array.of(0,
+        ...new BN(version).toArray('le', 8),
+        ...new BN(roundInitTime ? roundInitTime : ROUND_INIT_TIME)
+            .toArray('le', 8),
+        ...new BN(roundIncTimePerKey ? roundIncTimePerKey : ROUND_INC_TIME_PER_KEY)
+            .toArray('le', 8),
+        ...new BN(roundMaxTime ? roundMaxTime : ROUND_MAX_TIME)
+            .toArray('le', 8),
+        ));
     const initIx = new TransactionInstruction({
         keys: [
-            {pubkey: ownerKp.publicKey, isSigner: true, isWritable: false},
+            {pubkey: gameCreatorKp.publicKey, isSigner: true, isWritable: false},
             {pubkey: gameState, isSigner: false, isWritable: true},
             {pubkey: wSolComAcc, isSigner: false, isWritable: false},
             {pubkey: wSolP3dAcc, isSigner: false, isWritable: false},
@@ -153,12 +182,12 @@ async function initGame() {
         programId: FOMO_PROG_ID,
         data,
     });
-    await prepareAndSendTx([initIx], [ownerKp]);
-    //todo unpack and verify game state
+    await prepareAndSendTx([initIx], [gameCreatorKp]);
 }
 
-async function initRound(second = false) {
-    console.log('// --------------------------------------- init round')
+export async function initRound(round_id: number) {
+    round = round_id;
+    console.log(`// --------------------------------------- init round ${round}`)
     let roundBumpSeed, potBumpSeed;
     //round state pda
     [roundState, roundBumpSeed] = await PublicKey.findProgramAddress(
@@ -176,7 +205,7 @@ async function initRound(second = false) {
 
     //keys
     let keys = [
-        {pubkey: ownerKp.publicKey, isSigner: true, isWritable: false},
+        {pubkey: gameCreatorKp.publicKey, isSigner: true, isWritable: false},
         {pubkey: gameState, isSigner: false, isWritable: true},
         {pubkey: roundState, isSigner: false, isWritable: true},
         {pubkey: wSolPot, isSigner: false, isWritable: true},
@@ -189,17 +218,17 @@ async function initRound(second = false) {
         },
         {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
     ];
-    if (second) {
-        let [roundState2, roundBumpSeed2] = await PublicKey.findProgramAddress(
+    if (round_id > 1) {
+        let [prevRoundState, prevRoundBump] = await PublicKey.findProgramAddress(
             [Buffer.from(`round${round - 1}${version}`)],
             FOMO_PROG_ID,
         )
-        let [wSolPot2, potBumpSeed2] = await PublicKey.findProgramAddress(
+        let [prevWSolPot, prevWSolBump] = await PublicKey.findProgramAddress(
             [Buffer.from(`pot${round - 1}${version}`)],
             FOMO_PROG_ID,
         )
-        keys.push({pubkey: roundState2, isSigner: false, isWritable: true});
-        keys.push({pubkey: wSolPot2, isSigner: false, isWritable: true});
+        keys.push({pubkey: prevRoundState, isSigner: false, isWritable: true});
+        keys.push({pubkey: prevWSolPot, isSigner: false, isWritable: true});
     }
 
     //init round ix
@@ -209,31 +238,32 @@ async function initRound(second = false) {
         programId: FOMO_PROG_ID,
         data,
     });
-    await prepareAndSendTx([initRoundIx], [ownerKp]);
-    //todo unpack and verify round state
-
-    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('round pot has', potAmount as any / LAMPORTS_PER_SOL);
+    await prepareAndSendTx([initRoundIx], [gameCreatorKp]);
 }
 
-async function purchaseKeys(add_new_affiliate = false) {
+export async function purchaseKeys(
+    buyer: Keypair,
+    buyerTokenAcc: PublicKey,
+    amountSol: number,
+    addNewAff: (PublicKey | null) = null,
+) {
     console.log('// --------------------------------------- purchase keys')
     let bump;
     //player-round state pda
-    [aliceRoundState, bump] = await PublicKey.findProgramAddress(
-        [Buffer.from(`pr${aliceKp.publicKey.toBase58().substring(0, 16)}${round}${version}`)],
+    [playerState, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(`pr${buyer.publicKey.toBase58().substring(0, 12)}${round}${version}`)],
         FOMO_PROG_ID,
     )
-    console.log('player-round state pda is:', aliceRoundState.toBase58());
+    console.log('player-round state pda is:', playerState.toBase58());
 
     //keys
     let keys = [
-        {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
+        {pubkey: buyer.publicKey, isSigner: true, isWritable: false},
         {pubkey: gameState, isSigner: false, isWritable: true},
         {pubkey: roundState, isSigner: false, isWritable: true},
-        {pubkey: aliceRoundState, isSigner: false, isWritable: true},
+        {pubkey: playerState, isSigner: false, isWritable: true},
         {pubkey: wSolPot, isSigner: false, isWritable: true},
-        {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
+        {pubkey: buyerTokenAcc, isSigner: false, isWritable: true},
         {
             pubkey: SystemProgram.programId,
             isSigner: false,
@@ -241,19 +271,19 @@ async function purchaseKeys(add_new_affiliate = false) {
         },
         {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
     ];
-    if (add_new_affiliate) {
-        let newAffPk = new PublicKey("59NC7XLBzG5knsnu51P9WDVtywvW64PnasV2piHepw13");
-        let [newAffRoundState, bump] = await PublicKey.findProgramAddress(
-        [Buffer.from(`pr${newAffPk.toBase58().substring(0, 16)}${round}${version}`)],
-        FOMO_PROG_ID,
-    )
+    if (addNewAff) {
+        let [newAffRoundState, affBump] = await PublicKey.findProgramAddress(
+            [Buffer.from(`pr${addNewAff.toBase58().substring(0, 12)}${round}${version}`)],
+            FOMO_PROG_ID,
+        )
+        console.log('affiliate pda is:', newAffRoundState.toBase58());
         keys.push({pubkey: newAffRoundState, isSigner: false, isWritable: true})
-        keys.push({pubkey: newAffPk, isSigner: false, isWritable: false})
+        keys.push({pubkey: addNewAff, isSigner: false, isWritable: false})
     }
 
     //init round ix
     const data = Buffer.from(Uint8Array.of(2,
-        ...new BN(LAMPORTS_PER_SOL/2).toArray('le', 16), //1 sol
+        ...new BN(amountSol * LAMPORTS_PER_SOL).toArray('le', 16), //1 sol
         ...new BN(1).toArray('le', 1), //team bear
     ));
     const purchaseKeysIx = new TransactionInstruction({
@@ -261,26 +291,20 @@ async function purchaseKeys(add_new_affiliate = false) {
         programId: FOMO_PROG_ID,
         data,
     });
-    await prepareAndSendTx([purchaseKeysIx], [aliceKp]);
-    //todo unpack and verify changes to game/round state
-
-    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('post purchase, pot has', potAmount as any / LAMPORTS_PER_SOL);
-    let aliceAmount = (await connection.getTokenAccountBalance(wSolAliceAcc)).value.uiAmount;
-    console.log('post purchase, alice has', aliceAmount as any / LAMPORTS_PER_SOL);
+    await prepareAndSendTx([purchaseKeysIx], [buyer]);
 }
 
-async function withdrawSol() {
+export async function withdrawSol(player: Keypair, playerTokenAcc: PublicKey) {
     console.log('// --------------------------------------- withdraw sol')
     const data = Buffer.from(Uint8Array.of(3, ...new BN(round).toArray('le', 8)));
     const withdrawSolIx = new TransactionInstruction({
         keys: [
-            {pubkey: aliceKp.publicKey, isSigner: true, isWritable: false},
+            {pubkey: player.publicKey, isSigner: true, isWritable: false},
             {pubkey: gameState, isSigner: false, isWritable: false},
             {pubkey: roundState, isSigner: false, isWritable: false},
-            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
+            {pubkey: playerState, isSigner: false, isWritable: true},
             {pubkey: wSolPot, isSigner: false, isWritable: true},
-            {pubkey: wSolAliceAcc, isSigner: false, isWritable: true},
+            {pubkey: playerTokenAcc, isSigner: false, isWritable: true},
             {
                 pubkey: SystemProgram.programId,
                 isSigner: false,
@@ -289,32 +313,27 @@ async function withdrawSol() {
             {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
         ],
         programId: FOMO_PROG_ID,
-        data: data,
+        data,
     });
-    await prepareAndSendTx([withdrawSolIx], [aliceKp]);
-
-    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('post withdrawal, pot has', potAmount as any / LAMPORTS_PER_SOL);
-    let aliceAmount = (await connection.getTokenAccountBalance(wSolAliceAcc)).value.uiAmount;
-    console.log('post withdrawal, alice has', aliceAmount as any / LAMPORTS_PER_SOL);
+    await prepareAndSendTx([withdrawSolIx], [player]);
 }
 
-async function endRound() {
-    console.log('// --------------------------------------- end round')
+export async function endRound() {
+    console.log(`// --------------------------------------- end round ${round}`)
     const data = Buffer.from(Uint8Array.of(4));
     const endRoundIx = new TransactionInstruction({
         keys: [
             {pubkey: gameState, isSigner: false, isWritable: false},
             {pubkey: roundState, isSigner: false, isWritable: true},
-            {pubkey: aliceRoundState, isSigner: false, isWritable: true},
+            {pubkey: playerState, isSigner: false, isWritable: true},
         ],
         programId: FOMO_PROG_ID,
         data: data,
     });
-    await prepareAndSendTx([endRoundIx], [ownerKp]);
+    await prepareAndSendTx([endRoundIx], [gameCreatorKp]);
 }
 
-async function withdrawCom() {
+export async function withdrawCom() {
     console.log('// --------------------------------------- withdraw community funds')
     const data = Buffer.from(Uint8Array.of(5, ...new BN(round).toArray('le', 8)));
     const withdrawComIx = new TransactionInstruction({
@@ -323,33 +342,29 @@ async function withdrawCom() {
             {pubkey: roundState, isSigner: false, isWritable: true},
             {pubkey: wSolPot, isSigner: false, isWritable: true},
             {pubkey: wSolComAcc, isSigner: false, isWritable: true},
-            {pubkey: thirdPartyKp.publicKey, isSigner: true, isWritable: false},
+            {pubkey: bobKp.publicKey, isSigner: true, isWritable: false},
             {pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false},
         ],
         programId: FOMO_PROG_ID,
         data: data,
     });
-    await prepareAndSendTx([withdrawComIx], [thirdPartyKp]);
-
-    let potAmount = (await connection.getTokenAccountBalance(wSolPot)).value.uiAmount;
-    console.log('post com withdrawal, pot has', potAmount as any / LAMPORTS_PER_SOL);
-    let comAmount = (await connection.getTokenAccountBalance(wSolComAcc)).value.uiAmount;
-    console.log('post com withdrawal, com account has', comAmount as any / LAMPORTS_PER_SOL);
+    await prepareAndSendTx([withdrawComIx], [bobKp]);
 }
 
 // ============================================================================= play
 
 async function play() {
-    readAndUpdateVersion();
-    await getConnection();
-    await initGame();
+    // prepareTestEnv();
+    // await getConnection();
+    // await initGame();
+    // await initGame();
     // await getGameState();
 
-    await initRound();
+    // await initRound();
     // await getRoundState();
 
-    await purchaseKeys();
-    await getPlayerRoundState();
+    // await purchaseKeys();
+    // await getPlayerRoundState();
 
     // await purchaseKeys(true);
     // await withdrawSol();
@@ -358,13 +373,13 @@ async function play() {
     //     await withdrawSol();
     // }, 5000);
     // await withdrawCom();
-    // round = 2;
-    // await initRound(true);
-
 }
 
-play()
+// TODO THIS MUST BE OFF TO RUN TESTS
+// play()
 
 //todo finish test-side serialization, then split tests by instruction
 //todo remember to test things like deposits and withdrawals by calling fns AT LEAST TWICE
 //todo remember to test optional params: 1)affiliate during deposit, 2)previous round during round init
+//todo clean up console.logs in the end
+//todo remove private keys
