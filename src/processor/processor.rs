@@ -11,9 +11,10 @@ use solana_program::{
 
 use crate::instruction::InitGameParams;
 use crate::processor::pda::deserialize_player_round_state;
-use crate::processor::util::{
-    account_exists, calc_new_delay, round_ended, verify_account_ownership, Empty, Owners,
+use crate::processor::security::{
+    verify_account_ownership, verify_is_signer, verify_round_state, Owners,
 };
+use crate::processor::util::{account_exists, calc_new_delay, round_ended, Empty};
 use crate::state::{BULL_POT_SPLIT, SNEK_POT_SPLIT, WHALE_POT_SPLIT};
 use crate::{
     error::GameError,
@@ -28,7 +29,7 @@ use crate::{
             deserialize_or_create_player_round_state, deserialize_pot, deserialize_round_state,
         },
         spl_token::{spl_token_transfer, TokenTransferParams},
-        util::{airdrop_winner, calculate_player_f3d_share, verify_round_state},
+        util::{airdrop_winner, calculate_player_f3d_share},
     },
     state::{
         Team, BEAR_FEE_SPLIT, BEAR_POT_SPLIT, BULL_FEE_SPLIT, SNEK_FEE_SPLIT, WHALE_FEE_SPLIT,
@@ -100,6 +101,7 @@ impl Processor {
             Owners::NativeLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_is_signer(game_creator_info)?;
 
         let InitGameParams {
             version,
@@ -320,6 +322,7 @@ impl Processor {
             }
         }
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_is_signer(player_info)?;
 
         let PurchaseKeysParams {
             mut sol_to_be_added,
@@ -354,10 +357,6 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
-        //ensure the user actually owns player_info
-        if !player_info.is_signer {
-            return Err(GameError::MissingSignature.into());
-        }
 
         // --------------------------------------- calc variables
         // if total pot < 100 sol, each user only allowed to contribute 1 sol total
@@ -600,6 +599,7 @@ impl Processor {
             Owners::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_is_signer(player_info)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -627,10 +627,6 @@ impl Processor {
             game_state.version,
             program_id,
         )?;
-        //ensure the user actually owns player_info
-        if !player_info.is_signer {
-            return Err(GameError::MissingSignature.into());
-        }
 
         // --------------------------------------- calc withdrawal amounts
         // No, you don't need to wait for round end to withdraw winnings.
@@ -808,6 +804,7 @@ impl Processor {
             Owners::BPFLoader,
         ];
         verify_account_ownership(accounts, &expected_owners)?;
+        verify_is_signer(com_wallet_owner_info)?;
 
         let WithdrawParams { withdraw_for_round } = withdraw_params;
 
@@ -834,9 +831,6 @@ impl Processor {
         let com_wallet = Account::unpack(&com_wallet_info.data.borrow_mut())?;
         if com_wallet.owner != *com_wallet_owner_info.key {
             return Err(GameError::InvalidOwner.into());
-        }
-        if !com_wallet_owner_info.is_signer {
-            return Err(GameError::MissingSignature.into());
         }
 
         // --------------------------------------- transfer tokens
@@ -886,3 +880,4 @@ impl Processor {
 // - msg!()
 // - unused fns/vars
 // - 2x readmes
+// - imports

@@ -1,10 +1,8 @@
 use solana_program::{
-    account_info::AccountInfo, clock::Clock, entrypoint::ProgramResult, msg,
-    program_error::ProgramError, pubkey::Pubkey,
+    account_info::AccountInfo, clock::Clock, msg, program_error::ProgramError, pubkey::Pubkey,
 };
 
 use crate::error::GameError;
-use crate::math::common::TryAdd;
 use crate::state::GameState;
 use crate::{
     math::common::{TryDiv, TryMul},
@@ -30,26 +28,6 @@ pub fn calculate_player_f3d_share(
     //in practice, however, to account for it would have to coordinate all withdrawals by all players
     //which of course isn't possible. So it will just be left in the protocol
     player_keys.try_mul(accum_f3d)?.try_floor_div(total_keys)
-}
-
-/// Checks whether actual funds in the pot equate to total of all the parties' shares.
-/// NOTE: considered comparing vs actual money in pot but problems arise:
-///  - what if someone randommly sends money to pot
-///  - what if one of the players withdraws their affiliate share
-///    (we would have to scape every user account's state to adjust expectations)
-pub fn verify_round_state(round_state: &RoundState) -> ProgramResult {
-    let actual_money_in_pot = round_state.accum_sol_pot;
-    let supposed_money_in_pot = round_state
-        .accum_community_share
-        .try_add(round_state.accum_airdrop_share)?
-        .try_add(round_state.accum_next_round_share)?
-        .try_add(round_state.accum_aff_share)?
-        .try_add(round_state.accum_p3d_share)?
-        .try_add(round_state.accum_f3d_share)?
-        .try_add(round_state.still_in_play)?
-        .try_add(round_state.final_prize_share)?;
-    assert_eq!(actual_money_in_pot, supposed_money_in_pot);
-    Ok(())
 }
 
 pub fn airdrop_winner(
@@ -108,49 +86,6 @@ pub fn calc_new_delay(new_keys: u128, game_state: &GameState) -> Result<u128, Pr
     Ok(delay_based_on_keys.min(game_state.round_max_time as u128))
 }
 
-// --------------------------------------- ownership
-
 pub fn load_pk(addr: &str) -> Result<Pubkey, ProgramError> {
     Pubkey::from_str(addr).map_err(|_| GameError::WrongAccount.into())
-}
-
-pub enum Owners {
-    SystemProgram,
-    TokenProgram,
-    NativeLoader,
-    BPFLoader,
-    Sysvar,
-    Other(Pubkey),
-    None,
-}
-
-pub fn verify_account_ownership(
-    accounts: &[AccountInfo],
-    expected_owners: &[Owners],
-) -> ProgramResult {
-    for (i, account) in accounts.iter().enumerate() {
-        let expected_owner = match &expected_owners[i] {
-            Owners::SystemProgram => solana_program::system_program::id(),
-            Owners::TokenProgram => spl_token::id(),
-            Owners::NativeLoader => load_pk("NativeLoader1111111111111111111111111111111")?,
-            Owners::BPFLoader => load_pk("BPFLoader2111111111111111111111111111111111")?,
-            Owners::Sysvar => load_pk("Sysvar1111111111111111111111111111111111111")?,
-            Owners::Other(pk) => *pk,
-            Owners::None => {
-                //no need to check owner for this account
-                continue;
-            }
-        };
-
-        if *account.owner != expected_owner {
-            msg!(
-                "Account {} is expected to be owned by {}, but is actually owned by {}",
-                account.key,
-                expected_owner,
-                account.owner,
-            );
-            return Err(GameError::InvalidOwner.into());
-        }
-    }
-    Ok(())
 }
